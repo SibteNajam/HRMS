@@ -42,6 +42,84 @@ show first in your demo.
 | POST | `/leave/types` | ADMIN | |
 | PATCH | `/leave/balance/:id` | ADMIN | Manual adjustment. Audited |
 
+## Approval hierarchy
+
+Who may approve whose leave. The rule that makes it work is not in the table:
+**nobody approves their own request**, checked separately — without it an
+ADMIN would self-approve, because ADMIN appears in their own approver list.
+
+| Requester | Approved by | Rationale |
+|---|---|---|
+| `EMPLOYEE` | HR or ADMIN | Day-to-day HR work |
+| `HR` | **ADMIN only** | HR cannot approve HR — otherwise two HR staff can approve each other's leave indefinitely |
+| `ADMIN` | another ADMIN | Same principle one level up |
+
+```ts
+// leave-policy.ts — the single source of truth
+export function approversFor(requesterRole: Role): Role[] {
+  switch (requesterRole) {
+    case Role.EMPLOYEE: return [Role.HR, Role.ADMIN];
+    case Role.HR:
+    case Role.ADMIN:    return [Role.ADMIN];
+  }
+}
+```
+
+The queue is scoped by the same function, so HR simply never sees a request
+they could not action. Showing it and then refusing would be worse than not
+showing it.
+
+## Decision factors
+
+Every fact HR needs is on the card, because the alternative is HR opening
+another tab — and the conflict with a colleague's leave is exactly what a
+human scanning a list misses.
+
+The factors are the ones named in the project documents:
+
+| Factor | Source |
+|---|---|
+| Leave balance, before and after approval | Report §5, §7.3 — "balances, policy verification" |
+| Attendance percentage over 90 days | Report §8 — "attendance below 80%" |
+| Repeated lateness | Report §7.2, deck slide 3 |
+| Significant decline in attendance | Report §7.2 — "a significant decline in attendance" |
+| Reason needs clarification | Deck slide 3 — "identifies missing clarification" |
+| Team coverage during the dates | Not in the documents; the highest-value addition |
+| Tenure and prior rejections | Context for a borderline call |
+
+### Thresholds
+
+All in `leave-decision-context.ts`, all constants:
+
+| Flag | Fires when |
+|---|---|
+| `LOW_ATTENDANCE` | below **80%** — the figure the report names |
+| `DECLINING_ATTENDANCE` | down more than **15 points** on the previous period |
+| `REPEATED_LATENESS` | **3 or more** late arrivals in 90 days |
+| `INSUFFICIENT_BALANCE` | approval would take the balance below zero |
+| `TEAM_COVERAGE` | **40%+** of the department already off in the range |
+| `THIN_REASON` | reason under 25 characters |
+| `NEW_JOINER` | under 3 months' tenure |
+
+**Computed by rules, never by the model.** A flag has to be reproducible and
+defensible: "attendance below 80%" can be said to an employee's face;
+"the AI thought so" cannot. The AI's role here is to describe a set of flags
+in a sentence, not to produce them.
+
+When nothing fires, a `CLEAR` flag is emitted deliberately — a queue of cards
+with no badges looks like the check failed to run.
+
+## Dates are UTC-anchored
+
+`new Date('2026-11-16')` parses as UTC midnight, but `setHours(0,0,0,0)`
+reinterprets it in local time. In PKT (UTC+5) that lands on
+`2026-11-15T19:00Z`, and a MySQL `DATE` column then stores **15 November** —
+leave silently on the wrong days, and a working-day count that disagrees with
+the attendance rows it writes.
+
+Every date in this module goes through `parseDateOnly()` and uses
+`getUTCDay()` / `setUTCDate()`. Never `setHours` on a date-only value.
+
 ## Business rules
 
 1. **Dates must be sane** — `start_date <= end_date`, and `start_date` may not

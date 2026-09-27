@@ -58,7 +58,7 @@ export function UserRow({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
     <>
       <tr
         className={cn(
-          'border-t border-line-subtle transition-colors hover:bg-ink-25 dark:hover:bg-surface-sunken',
+          'border-t border-line-subtle transition-colors hover:bg-surface-hover',
           !user.isActive && 'opacity-60',
         )}
       >

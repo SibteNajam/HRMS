@@ -1,9 +1,10 @@
 'use client';
 
 import { forwardRef } from 'react';
-import { Loader2, type LucideIcon } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Icon, type IconSize } from './Icon';
+import { Spinner } from './loading/Spinner';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'link';
 type Size = 'sm' | 'md' | 'lg' | 'icon';
@@ -12,18 +13,18 @@ const VARIANTS: Record<Variant, string> = {
   primary:
     'bg-[var(--color-primary-solid)] text-white shadow-brand ' +
     'hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)] active:shadow-none ' +
-    'disabled:bg-ink-200 disabled:text-content-tertiary disabled:shadow-none',
+    'disabled:bg-surface-sunken disabled:text-content-tertiary disabled:shadow-none',
   secondary:
     'bg-surface-raised text-content-primary border border-line-default ' +
-    'hover:bg-surface-sunken active:bg-ink-100 ' +
+    'hover:bg-surface-hover active:bg-surface-active ' +
     'disabled:bg-surface-sunken disabled:text-content-tertiary disabled:border-line-subtle',
   ghost:
     'bg-transparent text-content-secondary ' +
-    'hover:bg-surface-sunken hover:text-content-primary active:bg-ink-200 ' +
+    'hover:bg-surface-hover hover:text-content-primary active:bg-surface-active ' +
     'disabled:text-content-tertiary',
   danger:
     'bg-danger text-white hover:brightness-110 active:brightness-95 ' +
-    'disabled:bg-ink-200 disabled:text-content-tertiary',
+    'disabled:bg-surface-sunken disabled:text-content-tertiary',
   link:
     'bg-transparent text-[var(--color-primary)] underline-offset-4 hover:underline ' +
     'disabled:text-content-tertiary disabled:no-underline',
@@ -85,7 +86,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       >
         {/* The label stays visible while loading so the button does not resize. */}
-        {loading && <Loader2 size={16} className="animate-spin" aria-hidden />}
+        {loading && <Spinner size={size === 'sm' ? 'xs' : 'sm'} />}
         {showIcon && iconPosition === 'left' && (
           <Icon icon={icon} size={ICON_SIZE[size]} />
         )}

@@ -44,7 +44,7 @@ export function Logo({
 }) {
   return (
     <div className={cn('flex items-center gap-2.5', className)}>
-      <LogoMark className="h-8 w-8 text-brand-600" />
+      <LogoMark className="h-8 w-8 text-[var(--color-primary)]" />
       {showWordmark && (
         <div className="flex flex-col leading-none">
           <span className="font-display text-[19px] font-extrabold tracking-[-0.03em] text-content-primary">

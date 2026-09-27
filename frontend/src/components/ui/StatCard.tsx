@@ -28,7 +28,7 @@ export function StatCard({
         <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-secondary">
           {label}
         </p>
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 dark:bg-[var(--color-primary-subtle)]">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-selected">
           <Icon icon={icon} size="md" className="text-[var(--color-primary)]" />
         </span>
       </div>

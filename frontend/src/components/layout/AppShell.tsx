@@ -7,7 +7,8 @@ import { Topbar } from './Topbar';
 import { useGetMeQuery } from '@/store/api/endpoints/authApi';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSession } from '@/store/slices/authSlice';
-import { LogoMark } from '@/components/brand/Logo';
+import { PageLoader } from '@/components/ui/loading';
+import { RouteProgress } from '@/components/ui/loading';
 
 /**
  * The session cookie is httpOnly, so the client cannot read it. The only way
@@ -39,23 +40,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (isError) router.replace('/login');
   }, [isError, router]);
 
-  if (isLoading || !user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-page">
-        <LogoMark className="h-10 w-10 animate-pulse text-[var(--color-primary)]" />
-        <span className="sr-only">Loading</span>
-      </div>
-    );
-  }
+  if (isLoading || !user) return <PageLoader label="Signing you in" />;
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-page">
+      <RouteProgress />
       <Sidebar role={user.role} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         {/* Only this scrolls — navigation must never scroll out of reach. */}
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1440px] px-6 pb-10">{children}</div>
+          <div key={undefined} className="mx-auto max-w-[1440px] px-6 pb-10">
+            {children}
+          </div>
         </main>
       </div>
     </div>

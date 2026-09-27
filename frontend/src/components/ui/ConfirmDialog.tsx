@@ -42,7 +42,7 @@ export function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
     >
       <div
-        className="absolute inset-0 bg-ink-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-[var(--overlay-scrim)] backdrop-blur-[2px]"
         onClick={onCancel}
         aria-hidden
       />
@@ -58,7 +58,7 @@ export function ConfirmDialog({
               'flex h-10 w-10 shrink-0 items-center justify-center rounded-full',
               tone === 'danger'
                 ? 'bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger'
-                : 'bg-brand-50 text-[var(--color-primary)]',
+                : 'bg-surface-selected text-content-selected',
             )}
           >
             <TriangleAlert size={20} strokeWidth={2} aria-hidden />

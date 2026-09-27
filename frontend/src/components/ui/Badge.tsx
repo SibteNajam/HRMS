@@ -17,7 +17,7 @@ const TONES: Record<Tone, string> = {
   info:
     'bg-[color-mix(in_srgb,var(--info)_12%,transparent)] text-info border-[color-mix(in_srgb,var(--info)_30%,transparent)]',
   brand:
-    'bg-brand-50 text-brand-700 border-brand-200 dark:bg-[var(--color-primary-subtle)] dark:text-[var(--color-primary)] dark:border-transparent',
+    'bg-surface-selected text-content-selected border-transparent',
   neutral: 'bg-surface-sunken text-content-secondary border-line-subtle',
 };
 

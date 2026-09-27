@@ -93,15 +93,16 @@ function NavRow({
     'group flex h-11 w-full items-center gap-3 rounded-lg px-3 text-body font-medium ' +
     'transition-colors duration-100 ease-out';
 
+  // Semantic tokens only. hover:text-ink-800 was #1E293B — dark navy — with
+  // no dark: override, so hovering in dark mode painted the label dark on
+  // dark and it vanished.
   const idle =
-    'text-ink-700 hover:bg-brand-50 hover:text-ink-800 ' +
-    'dark:text-content-secondary dark:hover:bg-[var(--color-primary-subtle)]';
+    'text-content-secondary hover:bg-surface-hover hover:text-content-primary';
 
   const active =
     'bg-[var(--color-primary-solid)] text-white shadow-brand';
 
-  const parentOpen =
-    'bg-brand-50 text-brand-700 dark:bg-[var(--color-primary-subtle)] dark:text-[var(--color-primary)]';
+  const parentOpen = 'bg-surface-selected text-content-selected';
 
   // Leaf item — navigates.
   if (item.path) {
@@ -183,7 +184,7 @@ function NavRow({
                       'flex h-[38px] items-center gap-2.5 rounded-md pl-[18px] pr-3',
                       'text-body-sm transition-colors duration-100 ease-out',
                       childActive
-                        ? 'bg-brand-50 font-semibold text-brand-700 dark:bg-[var(--color-primary-subtle)] dark:text-[var(--color-primary)]'
+                        ? 'bg-surface-selected font-semibold text-content-selected'
                         : 'text-content-secondary hover:bg-surface-sunken hover:text-content-primary',
                     )}
                   >

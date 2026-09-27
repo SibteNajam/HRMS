@@ -9,7 +9,7 @@ const SIZES = {
 
 /** Deterministic tint from the name, so a person is always the same colour. */
 const TINTS = [
-  'bg-brand-100 text-brand-700',
+  'bg-surface-selected text-content-selected',
   'bg-[color-mix(in_srgb,var(--info)_14%,transparent)] text-info',
   'bg-[color-mix(in_srgb,var(--success)_14%,transparent)] text-success',
   'bg-[color-mix(in_srgb,var(--warning)_16%,transparent)] text-warning',

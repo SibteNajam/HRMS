@@ -102,7 +102,15 @@ export interface LeaveRequest {
   employee: Pick<Employee, 'id' | 'firstName' | 'lastName' | 'employeeCode'> & {
     department: Department;
     designation: string;
+    /** Drives who is allowed to approve this request. */
+    user: { role: Role } | null;
   };
+  reviewer: {
+    id: number;
+    email: string;
+    role: Role;
+    employee: { firstName: string; lastName: string } | null;
+  } | null;
   leaveType: LeaveType;
   startDate: string;
   endDate: string;
@@ -112,9 +120,52 @@ export interface LeaveRequest {
   reviewedAt: string | null;
   reviewNote: string | null;
   createdAt: string;
-  /** Present on the approvals queue only — what HR needs to decide. */
-  balanceBefore?: number;
-  balanceAfter?: number;
+  /** Present on the approvals queue only — everything needed to decide. */
+  decision?: DecisionContext;
+}
+
+export type FlagLevel = 'info' | 'warning' | 'danger';
+
+export interface DecisionFlag {
+  code: string;
+  level: FlagLevel;
+  label: string;
+  detail: string;
+}
+
+/**
+ * Computed by the rules engine, never by the model — a flag must be
+ * reproducible and defensible in a conversation with the employee.
+ */
+export interface DecisionContext {
+  attendance: {
+    windowDays: number;
+    percentage: number;
+    previousPercentage: number | null;
+    presentDays: number;
+    lateCount: number;
+    absentDays: number;
+    onLeaveDays: number;
+    workingDays: number;
+  };
+  balance: {
+    allocated: number;
+    used: number;
+    remaining: number;
+    afterApproval: number;
+  };
+  history: {
+    daysTakenThisYear: number;
+    requestsThisYear: number;
+    rejectedThisYear: number;
+    tenureMonths: number;
+  };
+  coverage: {
+    departmentSize: number;
+    othersOffInRange: number;
+    othersOffNames: string[];
+  };
+  flags: DecisionFlag[];
 }
 
 export interface Payslip {

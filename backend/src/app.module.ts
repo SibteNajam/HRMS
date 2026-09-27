@@ -8,6 +8,7 @@ import { validateEnv } from './config/env.validation.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
+import { LeaveModule } from './modules/leave/leave.module.js';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
@@ -26,6 +27,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
     PrismaModule,
     AuthModule,
     AdminModule,
+    LeaveModule,
   ],
   providers: [
     // Order matters: throttle, then authenticate, then authorise.

@@ -594,11 +594,47 @@ export class LeaveService {
       byEmployee.set(r.employee.id, entry);
     }
 
+    // Which nearby months DO have leave. An empty current month with no
+    // hint that October is full is indistinguishable from a broken screen.
+    const windowFrom = new Date(Date.UTC(year, month - 7, 1));
+    const windowTo = new Date(Date.UTC(year, month + 5, 0));
+    const nearby = await this.prisma.leaveRequest.findMany({
+      where: {
+        status: 'APPROVED',
+        startDate: { lte: windowTo },
+        endDate: { gte: windowFrom },
+        ...(departmentId ? { employee: { departmentId } } : {}),
+      },
+      select: { startDate: true, endDate: true },
+    });
+
+    const months = new Map<string, number>();
+    for (const r of nearby) {
+      const cursor = new Date(Date.UTC(
+        r.startDate.getUTCFullYear(), r.startDate.getUTCMonth(), 1,
+      ));
+      const last = new Date(Date.UTC(
+        r.endDate.getUTCFullYear(), r.endDate.getUTCMonth(), 1,
+      ));
+      while (cursor <= last) {
+        const key = `${cursor.getUTCFullYear()}-${cursor.getUTCMonth() + 1}`;
+        months.set(key, (months.get(key) ?? 0) + 1);
+        cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      }
+    }
+
     return {
       year,
       month,
       daysInMonth: to.getUTCDate(),
       rows: [...byEmployee.values()],
+      monthsWithLeave: [...months.entries()]
+        .map(([key, count]) => {
+          const [y, m] = key.split('-').map(Number);
+          return { year: y, month: m, count };
+        })
+        .filter((x) => !(x.year === year && x.month === month))
+        .sort((a, b) => a.year - b.year || a.month - b.month),
     };
   }
 

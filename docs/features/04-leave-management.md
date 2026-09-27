@@ -247,6 +247,25 @@ type keeps a colour keyed to its id so it never shifts between renders.
 what makes the calendar useful for planning — but "why" is between the
 employee and whoever approved it.
 
+The signed-in user's own row is tinted and marked "(you)", since finding
+your own approved leave is the most common reason to open this screen.
+
+#### The empty month problem
+
+The calendar opens on the current month, because "who is off right now" is
+the question it exists to answer. But if the only approved leave is next
+month, an empty current month is indistinguishable from a broken screen —
+which is exactly how it reads.
+
+So the response carries `monthsWithLeave`: every month within ±6 that does
+have approved leave, with a count. The empty state turns those into buttons
+that jump straight there, and a **Today** button appears once you have
+navigated away.
+
+Only **approved** leave appears. The empty state says so, because a pending
+request the user just submitted not showing up is the other way this screen
+looks broken.
+
 ### Balances
 
 One row per active employee, one column per quota-bearing type. Unpaid leave

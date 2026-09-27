@@ -32,6 +32,8 @@ export interface CalendarData {
   month: number;
   daysInMonth: number;
   rows: CalendarRow[];
+  /** Other months within ±6 that do have approved leave. */
+  monthsWithLeave: { year: number; month: number; count: number }[];
 }
 
 export interface UpsertLeaveTypeArgs {

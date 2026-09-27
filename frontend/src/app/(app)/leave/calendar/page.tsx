@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowRight, CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { useGetLeaveCalendarQuery } from '@/store/api/endpoints/leaveApi';
+import { useAppSelector } from '@/store/hooks';
 
 /** One colour per leave type, assigned by id so it never shifts. */
 const TYPE_COLOR = [
@@ -25,6 +26,7 @@ export default function LeaveCalendarPage() {
     month: now.getMonth() + 1,
   });
 
+  const me = useAppSelector((s) => s.auth.user);
   const { data, isLoading } = useGetLeaveCalendarQuery(cursor);
 
   const monthLabel = new Intl.DateTimeFormat('en-GB', {
@@ -59,6 +61,18 @@ export default function LeaveCalendarPage() {
             <Button size="icon" variant="ghost" onClick={() => shift(1)} aria-label="Next month">
               <ChevronRight size={18} />
             </Button>
+            {!isThisMonth && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="ml-1"
+                onClick={() =>
+                  setCursor({ year: now.getFullYear(), month: now.getMonth() + 1 })
+                }
+              >
+                Today
+              </Button>
+            )}
           </div>
         }
       />
@@ -73,8 +87,37 @@ export default function LeaveCalendarPage() {
               Nobody is off in {monthLabel}
             </h3>
             <p className="mt-1.5 text-body-sm text-content-secondary">
-              Approved leave appears here as a bar across the days it covers.
+              Only approved leave appears here. Pending requests show up once
+              they are decided.
             </p>
+
+            {/* Without this, an empty current month is indistinguishable from
+                a screen that is not working. */}
+            {!!data?.monthsWithLeave.length && (
+              <div className="mt-5">
+                <p className="text-body-sm text-content-secondary">
+                  There is approved leave in:
+                </p>
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  {data.monthsWithLeave!.map((m) => (
+                    <button
+                      key={`${m.year}-${m.month}`}
+                      type="button"
+                      onClick={() => setCursor({ year: m.year, month: m.month })}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line-default bg-surface-raised px-3 py-1.5 text-body-sm font-medium text-content-primary transition-colors hover:border-[var(--color-primary)] hover:text-content-selected"
+                    >
+                      {new Intl.DateTimeFormat('en-GB', {
+                        month: 'long', year: 'numeric',
+                      }).format(new Date(m.year, m.month - 1, 1))}
+                      <span className="tabular text-content-tertiary">
+                        {m.count}
+                      </span>
+                      <ArrowRight size={13} aria-hidden />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -109,12 +152,26 @@ export default function LeaveCalendarPage() {
               <div className="stagger">
                 {data.rows.map((row) => {
                   const name = `${row.employee.firstName} ${row.employee.lastName}`;
+                  const isMe = row.employee.id === me?.employeeId;
                   return (
-                    <div key={row.employee.id} className="flex border-b border-line-subtle last:border-0">
+                    <div
+                      key={row.employee.id}
+                      className={cn(
+                        'flex border-b border-line-subtle last:border-0',
+                        isMe && 'bg-surface-selected',
+                      )}
+                    >
                       <div className="flex w-[220px] shrink-0 items-center gap-2.5 px-4 py-2.5">
                         <Avatar name={name} size="sm" />
                         <div className="min-w-0">
-                          <p className="truncate text-body-sm font-medium text-content-primary">{name}</p>
+                          <p className="truncate text-body-sm font-medium text-content-primary">
+                            {name}
+                            {isMe && (
+                              <span className="ml-1.5 text-caption font-normal text-content-tertiary">
+                                (you)
+                              </span>
+                            )}
+                          </p>
                           <p className="truncate text-caption text-content-tertiary">
                             {row.employee.department.name}
                           </p>

@@ -40,7 +40,9 @@ export interface DecisionFlag {
 export interface DecisionContext {
   attendance: {
     windowDays: number;
-    percentage: number;
+    /** null when there are no attendance records yet — a new joiner has no
+     *  attendance rate, which is different from a rate of 0%. */
+    percentage: number | null;
     previousPercentage: number | null;
     presentDays: number;
     lateCount: number;
@@ -72,11 +74,11 @@ export function buildFlags(ctx: Omit<DecisionContext, 'flags'>, reason: string):
   const flags: DecisionFlag[] = [];
   const a = ctx.attendance;
 
-  if (a.workingDays > 0 && a.percentage < THRESHOLDS.LOW_ATTENDANCE_PCT) {
+  if (a.percentage !== null && a.percentage < THRESHOLDS.LOW_ATTENDANCE_PCT) {
     flags.push({
       code: 'LOW_ATTENDANCE',
       level: 'danger',
-      label: `Attendance ${a.percentage.toFixed(0)}%`,
+      label: `Attendance ${a.percentage!.toFixed(0)}%`,
       detail:
         `Below the ${THRESHOLDS.LOW_ATTENDANCE_PCT}% standard over the last ` +
         `${a.windowDays} days — ${a.absentDays} absence${a.absentDays === 1 ? '' : 's'}.`,
@@ -84,6 +86,7 @@ export function buildFlags(ctx: Omit<DecisionContext, 'flags'>, reason: string):
   }
 
   if (
+    a.percentage !== null &&
     a.previousPercentage !== null &&
     a.previousPercentage - a.percentage > THRESHOLDS.DECLINE_POINTS
   ) {
@@ -92,8 +95,8 @@ export function buildFlags(ctx: Omit<DecisionContext, 'flags'>, reason: string):
       level: 'warning',
       label: 'Attendance declining',
       detail:
-        `Down from ${a.previousPercentage.toFixed(0)}% to ` +
-        `${a.percentage.toFixed(0)}% compared with the previous period.`,
+        `Down from ${a.previousPercentage!.toFixed(0)}% to ` +
+        `${a.percentage!.toFixed(0)}% compared with the previous period.`,
     });
   }
 
@@ -148,6 +151,17 @@ export function buildFlags(ctx: Omit<DecisionContext, 'flags'>, reason: string):
       level: 'info',
       label: 'Brief reason',
       detail: 'Consider asking for more detail before deciding.',
+    });
+  }
+
+  if (ctx.attendance.percentage === null) {
+    flags.push({
+      code: 'NO_ATTENDANCE_DATA',
+      level: 'info',
+      label: 'No attendance history',
+      detail:
+        'There are no attendance records for this person yet, so there is ' +
+        'no rate to judge against.',
     });
   }
 

@@ -1,5 +1,45 @@
 import { baseApi } from '../baseApi';
-import type { LeaveBalance, LeaveRequest, LeaveType, Paginated } from '@/types';
+import type {
+  Department, LeaveBalance, LeaveRequest, LeaveType, Paginated, Role,
+} from '@/types';
+
+export interface EmployeeBalances {
+  employee: {
+    id: number; employeeCode: string; firstName: string; lastName: string;
+    designation: string; department: Department; role: Role;
+  };
+  balances: LeaveBalance[];
+}
+
+export interface CalendarSpan {
+  id: number;
+  startDate: string;
+  endDate: string;
+  days: number;
+  leaveType: { id: number; name: string };
+}
+
+export interface CalendarRow {
+  employee: {
+    id: number; firstName: string; lastName: string; employeeCode: string;
+    department: Department;
+  };
+  spans: CalendarSpan[];
+}
+
+export interface CalendarData {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  rows: CalendarRow[];
+}
+
+export interface UpsertLeaveTypeArgs {
+  id?: number;
+  name: string;
+  annualQuota: number;
+  isPaid: boolean;
+}
 
 export interface CreateLeaveArgs {
   leaveTypeId: number;
@@ -77,8 +117,38 @@ export const leaveApi = baseApi.injectEndpoints({
         { type: 'LeaveRequest', id: 'MY_LIST' },
         { type: 'LeaveRequest', id: 'ALL' },
         { type: 'LeaveBalance', id: 'ME' },
+        { type: 'LeaveBalance', id: 'ALL' },
+        { type: 'LeaveRequest', id: 'CALENDAR' },
         { type: 'Attendance', id: 'MY_LIST' },
         { type: 'Notification', id: 'COUNT' },
+      ],
+    }),
+
+    getAllBalances: build.query<
+      EmployeeBalances[],
+      { year?: number; departmentId?: number; search?: string }
+    >({
+      query: (params) => ({ url: '/leave/balances', params }),
+      providesTags: [{ type: 'LeaveBalance', id: 'ALL' }],
+    }),
+
+    getLeaveCalendar: build.query<
+      CalendarData,
+      { year: number; month: number; departmentId?: number }
+    >({
+      query: (params) => ({ url: '/leave/calendar', params }),
+      providesTags: [{ type: 'LeaveRequest', id: 'CALENDAR' }],
+    }),
+
+    upsertLeaveType: build.mutation<LeaveType, UpsertLeaveTypeArgs>({
+      query: ({ id, ...body }) =>
+        id
+          ? { url: `/leave/types/${id}`, method: 'PATCH', body }
+          : { url: '/leave/types', method: 'POST', body },
+      invalidatesTags: [
+        'LeaveType',
+        { type: 'LeaveBalance', id: 'ME' },
+        { type: 'LeaveBalance', id: 'ALL' },
       ],
     }),
 
@@ -94,6 +164,9 @@ export const leaveApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useGetAllBalancesQuery,
+  useGetLeaveCalendarQuery,
+  useUpsertLeaveTypeMutation,
   useGetLeaveTypesQuery,
   useGetMyLeaveBalanceQuery,
   useGetMyLeaveRequestsQuery,

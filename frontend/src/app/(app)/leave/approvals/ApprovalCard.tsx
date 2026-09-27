@@ -2,17 +2,32 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarDays, Check, Quote, ShieldCheck, X } from 'lucide-react';
+import { ArrowRight, Check, Quote, ShieldCheck, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { formatDate, formatRelative } from '@/lib/format';
+import { formatRelative } from '@/lib/format';
 import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useReviewLeaveRequestMutation } from '@/store/api/endpoints/leaveApi';
 import type { LeaveRequest } from '@/types';
 import { DecisionPanel } from './DecisionPanel';
 import { RejectDialog } from './RejectDialog';
+import { summarise, type Verdict } from './verdict';
+
+/** Day name included — coverage is easier to judge with weekdays visible. */
+function dayLabel(iso: string) {
+  const d = new Date(iso);
+  return new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short',
+  }).format(d);
+}
+
+const ACCENT: Record<Verdict, string> = {
+  blocked: 'before:bg-danger',
+  check: 'before:bg-warning',
+  clear: 'before:bg-success',
+};
 
 export function ApprovalCard({ request }: { request: LeaveRequest }) {
   const [review, { isLoading }] = useReviewLeaveRequestMutation();
@@ -21,6 +36,10 @@ export function ApprovalCard({ request }: { request: LeaveRequest }) {
   const name = `${request.employee.firstName} ${request.employee.lastName}`;
   const requesterRole = request.employee.user?.role ?? 'EMPLOYEE';
   const elevated = requesterRole === 'HR' || requesterRole === 'ADMIN';
+
+  const summary = request.decision ? summarise(request.decision) : null;
+  const verdict = summary?.verdict ?? 'clear';
+  const blocked = verdict === 'blocked';
 
   async function approve() {
     try {
@@ -41,72 +60,77 @@ export function ApprovalCard({ request }: { request: LeaveRequest }) {
     }
   }
 
-  const blocked = (request.decision?.balance.afterApproval ?? 0) < 0;
-
   return (
-    <article className="rounded-xl border border-line-subtle bg-surface-raised p-5 shadow-sm">
-      <header className="flex items-start gap-3.5">
-        <Avatar name={name} size="xl" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-display text-h3 text-content-primary">{name}</h3>
-            {elevated && (
-              <Badge tone="brand" icon={ShieldCheck} small>
-                {requesterRole}
-              </Badge>
-            )}
+    <article
+      className={cn(
+        'relative overflow-hidden rounded-xl border border-line-subtle bg-surface-raised shadow-sm',
+        // A 3px severity rail down the left edge, so a queue of twenty is
+        // scannable without reading a word.
+        'before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[""]',
+        ACCENT[verdict],
+      )}
+    >
+      <div className="p-5 pl-6">
+        <header className="flex items-start gap-3.5">
+          <Avatar name={name} size="xl" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-display text-h3 text-content-primary">{name}</h3>
+              {elevated && (
+                <Badge tone="brand" icon={ShieldCheck} small>{requesterRole}</Badge>
+              )}
+            </div>
+            <p className="text-body-sm text-content-secondary">
+              {request.employee.designation} · {request.employee.department.name} ·{' '}
+              {request.employee.employeeCode}
+            </p>
           </div>
-          <p className="text-body-sm text-content-secondary">
-            {request.employee.designation} · {request.employee.department.name} ·{' '}
-            {request.employee.employeeCode}
+          <span className="shrink-0 text-caption text-content-tertiary">
+            {formatRelative(request.createdAt)}
+          </span>
+        </header>
+
+        {/* The three facts that define the request, weighted so the day count
+            reads first — it is what decides whether cover is needed. */}
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-surface-sunken px-4 py-3">
+          <p className="tabular font-display text-h2 font-bold text-content-primary">
+            {request.days}
+            <span className="ml-1 text-body font-medium text-content-secondary">
+              working day{Number(request.days) === 1 ? '' : 's'}
+            </span>
           </p>
+          <span className="h-5 w-px bg-line-default" aria-hidden />
+          <p className="flex items-center gap-1.5 text-body font-medium text-content-primary">
+            {dayLabel(request.startDate)}
+            <ArrowRight size={14} className="text-content-tertiary" aria-hidden />
+            {dayLabel(request.endDate)}
+          </p>
+          <Badge tone="info" className="ml-auto">{request.leaveType.name}</Badge>
         </div>
-        <span className="shrink-0 text-caption text-content-tertiary">
-          {formatRelative(request.createdAt)}
-        </span>
-      </header>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg bg-surface-sunken px-4 py-3">
-        <Badge tone="info" icon={CalendarDays}>{request.leaveType.name}</Badge>
-        <p className="text-body font-medium text-content-primary">
-          {formatDate(request.startDate)} – {formatDate(request.endDate)}
-        </p>
-        <p className="tabular text-body-sm text-content-secondary">
-          {request.days} working day{Number(request.days) === 1 ? '' : 's'}
-        </p>
+        <div className="mt-3 flex gap-2.5">
+          <Quote size={14} className="mt-1 shrink-0 text-content-tertiary" aria-hidden />
+          <p className="text-body leading-relaxed text-content-primary">{request.reason}</p>
+        </div>
+
+        {request.decision && <DecisionPanel ctx={request.decision} />}
+
+        <footer className="mt-4 flex items-center justify-end gap-2">
+          <Button variant="secondary" icon={X} disabled={isLoading} onClick={() => setRejecting(true)}>
+            Reject
+          </Button>
+          <Button
+            variant="primary"
+            icon={Check}
+            loading={isLoading}
+            disabled={blocked}
+            title={blocked ? 'This exceeds their balance and will be refused' : undefined}
+            onClick={approve}
+          >
+            Approve
+          </Button>
+        </footer>
       </div>
-
-      <div className="mt-3 flex gap-2.5">
-        <Quote size={15} className="mt-0.5 shrink-0 text-content-tertiary" aria-hidden />
-        <p className="text-body leading-relaxed text-content-primary">{request.reason}</p>
-      </div>
-
-      {request.decision && <DecisionPanel ctx={request.decision} />}
-
-      <footer className="mt-4 flex items-center justify-end gap-2">
-        {blocked && (
-          <p className="mr-auto text-body-sm text-danger">
-            Approval will be refused — this exceeds their balance.
-          </p>
-        )}
-        <Button
-          variant="secondary"
-          icon={X}
-          disabled={isLoading}
-          onClick={() => setRejecting(true)}
-        >
-          Reject
-        </Button>
-        <Button
-          variant="primary"
-          icon={Check}
-          loading={isLoading}
-          disabled={blocked}
-          onClick={approve}
-        >
-          Approve
-        </Button>
-      </footer>
 
       <RejectDialog
         open={rejecting}

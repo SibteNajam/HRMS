@@ -79,6 +79,68 @@ export class LeaveService {
     }));
   }
 
+  async createLeaveType(dto: { name: string; annualQuota: number; isPaid?: boolean }) {
+    const clash = await this.prisma.leaveType.findUnique({ where: { name: dto.name } });
+    if (clash) throw new BadRequestException('A leave type with that name already exists');
+
+    const type = await this.prisma.leaveType.create({
+      data: { name: dto.name, annualQuota: dto.annualQuota, isPaid: dto.isPaid ?? true },
+    });
+
+    // Allocate to everyone for the current year, pro-rated for the months
+    // remaining — otherwise the type exists but nobody can request it.
+    const year = new Date().getFullYear();
+    const monthsLeft = 12 - new Date().getMonth();
+    const employees = await this.prisma.employee.findMany({
+      where: { employmentStatus: 'ACTIVE' }, select: { id: true },
+    });
+    if (employees.length && dto.annualQuota > 0) {
+      await this.prisma.leaveBalance.createMany({
+        data: employees.map((e) => ({
+          employeeId: e.id,
+          leaveTypeId: type.id,
+          year,
+          allocated: Math.round((dto.annualQuota * monthsLeft) / 12),
+          used: 0,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    return type;
+  }
+
+  /**
+   * Changing the quota updates THIS year's allocation for anyone who has not
+   * already used more than the new figure — reducing someone below what they
+   * have taken would make their balance negative.
+   */
+  async updateLeaveType(
+    id: number,
+    dto: { name: string; annualQuota: number; isPaid?: boolean },
+  ) {
+    const existing = await this.prisma.leaveType.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Leave type not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      const type = await tx.leaveType.update({
+        where: { id },
+        data: { name: dto.name, annualQuota: dto.annualQuota, isPaid: dto.isPaid ?? existing.isPaid },
+      });
+
+      if (dto.annualQuota !== existing.annualQuota) {
+        await tx.leaveBalance.updateMany({
+          where: {
+            leaveTypeId: id,
+            year: new Date().getFullYear(),
+            used: { lte: dto.annualQuota },
+          },
+          data: { allocated: dto.annualQuota },
+        });
+      }
+      return type;
+    });
+  }
+
   // ── Submitting ──────────────────────────────────────────────────────
 
   async create(user: JwtUser, dto: CreateLeaveRequestDto) {
@@ -432,6 +494,114 @@ export class LeaveService {
     });
   }
 
+  // ── Organisation-wide views ─────────────────────────────────────────
+
+  /** Every active employee's balance for a year — the HR balances screen. */
+  async allBalances(year: number, departmentId?: number, search?: string) {
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        employmentStatus: 'ACTIVE',
+        ...(departmentId ? { departmentId } : {}),
+        ...(search
+          ? {
+              OR: [
+                { firstName: { contains: search } },
+                { lastName: { contains: search } },
+                { employeeCode: { contains: search } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true, employeeCode: true, firstName: true, lastName: true,
+        designation: true,
+        department: { select: { id: true, name: true } },
+        user: { select: { role: true } },
+        leaveBalances: {
+          where: { year },
+          include: { leaveType: true },
+          orderBy: { leaveTypeId: 'asc' },
+        },
+      },
+      orderBy: [{ department: { name: 'asc' } }, { firstName: 'asc' }],
+    });
+
+    return employees.map((e) => ({
+      employee: {
+        id: e.id, employeeCode: e.employeeCode,
+        firstName: e.firstName, lastName: e.lastName,
+        designation: e.designation, department: e.department,
+        role: e.user?.role ?? 'EMPLOYEE',
+      },
+      balances: e.leaveBalances.map((b) => ({
+        id: b.id,
+        leaveType: b.leaveType,
+        allocated: Number(b.allocated),
+        used: Number(b.used),
+        remaining: Number(b.allocated) - Number(b.used),
+      })),
+    }));
+  }
+
+  /**
+   * Approved leave overlapping a month, one row per employee.
+   *
+   * Everyone can see this — knowing who is off is what the calendar is for,
+   * and it carries no salary or personal detail. Reasons are omitted.
+   */
+  async calendar(year: number, month: number, departmentId?: number) {
+    const from = new Date(Date.UTC(year, month - 1, 1));
+    const to = new Date(Date.UTC(year, month, 0));
+
+    const requests = await this.prisma.leaveRequest.findMany({
+      where: {
+        status: 'APPROVED',
+        startDate: { lte: to },
+        endDate: { gte: from },
+        ...(departmentId ? { employee: { departmentId } } : {}),
+      },
+      select: {
+        id: true, startDate: true, endDate: true, days: true,
+        leaveType: { select: { id: true, name: true } },
+        employee: {
+          select: {
+            id: true, firstName: true, lastName: true, employeeCode: true,
+            department: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { startDate: 'asc' },
+    });
+
+    const byEmployee = new Map<number, {
+      employee: (typeof requests)[number]['employee'];
+      spans: { id: number; startDate: Date; endDate: Date; days: number;
+               leaveType: { id: number; name: string } }[];
+    }>();
+
+    for (const r of requests) {
+      const entry = byEmployee.get(r.employee.id) ?? {
+        employee: r.employee,
+        spans: [],
+      };
+      entry.spans.push({
+        id: r.id,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        days: Number(r.days),
+        leaveType: r.leaveType,
+      });
+      byEmployee.set(r.employee.id, entry);
+    }
+
+    return {
+      year,
+      month,
+      daysInMonth: to.getUTCDate(),
+      rows: [...byEmployee.values()],
+    };
+  }
+
   // ── Decision support ────────────────────────────────────────────────
 
   /**
@@ -509,7 +679,7 @@ export class LeaveService {
       const workingDays = present + late + half + absent;
       const attended = present + late + half * 0.5;
       return {
-        percentage: workingDays ? (attended / workingDays) * 100 : 0,
+        percentage: workingDays ? (attended / workingDays) * 100 : null,
         presentDays: present,
         lateCount: late,
         absentDays: absent,
@@ -535,10 +705,9 @@ export class LeaveService {
     const partial = {
       attendance: {
         windowDays: THRESHOLDS.WINDOW_DAYS,
-        percentage: Number(cur.percentage.toFixed(1)),
-        previousPercentage: prev.workingDays
-          ? Number(prev.percentage.toFixed(1))
-          : null,
+        percentage: cur.percentage === null ? null : Number(cur.percentage.toFixed(1)),
+        previousPercentage:
+          prev.percentage === null ? null : Number(prev.percentage.toFixed(1)),
         presentDays: cur.presentDays,
         lateCount: cur.lateCount,
         absentDays: cur.absentDays,

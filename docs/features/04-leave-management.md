@@ -109,6 +109,48 @@ in a sentence, not to produce them.
 When nothing fires, a `CLEAR` flag is emitted deliberately — a queue of cards
 with no badges looks like the check failed to run.
 
+## The approvals screen reads as a conclusion, not a dataset
+
+Four metric tiles of equal visual weight make the reader do the judging. HR
+opens the queue to answer one question — *can I approve this?* — so the card
+answers it first and keeps the numbers underneath.
+
+### Three layers
+
+| Layer | Shows | Always visible |
+|---|---|---|
+| **Queue summary** | How many are ready, need a look, or are over balance | Yes |
+| **Severity rail** | A 3px coloured edge per card | Yes |
+| **Verdict line** | The conclusion plus any concerns, in words | Yes |
+| **The numbers** | Attendance, lateness, balance, coverage | On click |
+
+The rail makes a queue of twenty scannable without reading a word. The
+verdict line means a clear request needs no reading at all — *"Nothing to
+flag · attendance 93% · balance 14 → 9 · no team clash"* — and a problem
+request states the problem rather than presenting evidence of it.
+
+### Verdicts
+
+| Verdict | When | Effect |
+|---|---|---|
+| `blocked` | Approving would take the balance below zero | Approve button disabled — the server would refuse anyway |
+| `check` | Any danger or warning flag | Concerns listed as bullets |
+| `clear` | Nothing fired | One reassurance line |
+
+`blocked` disables the button rather than letting HR click and receive an
+error. The service still refuses independently; the disabled button is
+courtesy, not the control.
+
+### No attendance history is not 0% attendance
+
+A new joiner has no attendance records. Showing them as **0%** in red is a
+false alarm about the most sensitive figure on the card, and it is the kind
+of thing that quietly destroys trust in every other number.
+
+`attendance.percentage` is `number | null`. Null renders as `—` with "No
+records yet", the low-attendance flag cannot fire, and a separate
+`NO_ATTENDANCE_DATA` note explains why there is nothing to judge.
+
 ## Dates are UTC-anchored
 
 `new Date('2026-11-16')` parses as UTC midnight, but `setHours(0,0,0,0)`
@@ -182,6 +224,45 @@ exactly what the AI is good at. It still just says it. HR clicks.
 There is no `approve_leave` tool. There is no AI endpoint that writes. The
 approve button calls `PATCH /leave/requests/:id/review` like any other UI
 action, with the reviewer taken from the JWT.
+
+## Screens
+
+| Route | Role | Purpose |
+|---|---|---|
+| `/leave` | all | Balance cards, own request history, cancel a pending one |
+| `/leave/new` | all | Submit, with a live working-day and balance preview |
+| `/leave/approvals` | HR, ADMIN | The queue, scoped by the approval hierarchy |
+| `/leave/all` | HR, ADMIN | Every request, any outcome, with who decided it |
+| `/leave/balances` | HR, ADMIN | Entitlement and usage for every active employee |
+| `/leave/calendar` | all | Who is off this month, as a timeline |
+| `/leave/types` | ADMIN | Leave types and quotas |
+
+### Calendar
+
+A month timeline, one row per person, approved leave drawn as a bar across
+the days it spans. Weekends are shaded, today is highlighted, and each leave
+type keeps a colour keyed to its id so it never shifts between renders.
+
+**Reasons are deliberately omitted.** Everyone can see who is off — that is
+what makes the calendar useful for planning — but "why" is between the
+employee and whoever approved it.
+
+### Balances
+
+One row per active employee, one column per quota-bearing type. Unpaid leave
+has no quota, so it gets no column rather than an empty one. Remaining turns
+amber at two days or fewer.
+
+### Types & policy
+
+Creating a type allocates it to every active employee immediately, pro-rated
+for the months left in the year — otherwise the type exists but nobody has a
+balance to request against it.
+
+Changing a quota updates this year's allocation, but **only for employees who
+have not already used more than the new figure**. Reducing someone below what
+they have taken would leave them with a negative balance for leave that was
+already approved.
 
 ## Frontend
 

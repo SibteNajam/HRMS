@@ -140,7 +140,8 @@ export interface DecisionFlag {
 export interface DecisionContext {
   attendance: {
     windowDays: number;
-    percentage: number;
+    /** null when there are no attendance records yet — not the same as 0%. */
+    percentage: number | null;
     previousPercentage: number | null;
     presentDays: number;
     lateCount: number;

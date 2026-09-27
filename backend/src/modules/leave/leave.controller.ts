@@ -5,11 +5,12 @@ import { LeaveService } from './leave.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Audit } from '../../common/decorators/audit.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
-import { Role, HR_AND_ABOVE } from '../../common/enums/role.enum.js';
+import { Role, HR_AND_ABOVE, ADMIN_ONLY } from '../../common/enums/role.enum.js';
 import type { JwtUser } from '../../common/types/jwt-user.js';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto.js';
 import { ReviewLeaveRequestDto } from './dto/review-leave-request.dto.js';
 import { ListLeaveDto } from './dto/list-leave.dto.js';
+import { UpsertLeaveTypeDto } from './dto/leave-type.dto.js';
 
 @Controller('leave')
 export class LeaveController {
@@ -18,6 +19,20 @@ export class LeaveController {
   @Get('types')
   types() {
     return this.leave.leaveTypes();
+  }
+
+  @Post('types')
+  @Roles(...ADMIN_ONLY)
+  @Audit('LEAVE_TYPE_CREATED', 'leave_type')
+  createType(@Body() dto: UpsertLeaveTypeDto) {
+    return this.leave.createLeaveType(dto);
+  }
+
+  @Patch('types/:id')
+  @Roles(...ADMIN_ONLY)
+  @Audit('LEAVE_TYPE_UPDATED', 'leave_type')
+  updateType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpsertLeaveTypeDto) {
+    return this.leave.updateLeaveType(id, dto);
   }
 
   @Get('balance/me')
@@ -50,6 +65,35 @@ export class LeaveController {
   @Roles(...HR_AND_ABOVE)
   pendingCount(@CurrentUser() user: JwtUser) {
     return this.leave.pendingCount(user);
+  }
+
+  @Get('balances')
+  @Roles(...HR_AND_ABOVE)
+  allBalances(
+    @Query('year') year?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.leave.allBalances(
+      year ? Number(year) : new Date().getFullYear(),
+      departmentId ? Number(departmentId) : undefined,
+      search || undefined,
+    );
+  }
+
+  /** Who is off this month. Visible to everyone — no reasons, no salary. */
+  @Get('calendar')
+  calendar(
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const now = new Date();
+    return this.leave.calendar(
+      year ? Number(year) : now.getFullYear(),
+      month ? Number(month) : now.getMonth() + 1,
+      departmentId ? Number(departmentId) : undefined,
+    );
   }
 
   @Get('requests/all')

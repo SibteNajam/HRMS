@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Cadre — design tokens
+   Values are specified in docs/11-design-system.md. Do not add a colour
+   here without adding it there first.
+
+   Layer 1  primitives   --brand-*, --neutral-*      never change per theme
+   Layer 2  semantics    --surface-*, --text-*       swap under .dark
+   Layer 3  components   consume layer 2 only
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Layer 1: brand ramp ─────────────────────────────────────────── */
+  --color-brand-50:  #EFF5FF;
+  --color-brand-100: #DBE8FE;
+  --color-brand-200: #BFD6FE;
+  --color-brand-300: #93BBFD;
+  --color-brand-400: #60A5FA;
+  --color-brand-500: #3B82F6;
+  --color-brand-600: #2563EB;
+  --color-brand-700: #1D4FD8;
+  --color-brand-800: #1E42AF;
+  --color-brand-900: #1E3A8A;
+  --color-brand-950: #172554;
+
+  /* ── Layer 1: neutral ramp — blue-tinted, never pure grey ────────── */
+  --color-ink-0:   #FFFFFF;
+  --color-ink-25:  #FAFCFF;
+  --color-ink-50:  #F4F7FE;
+  --color-ink-100: #EDF1F9;
+  --color-ink-200: #E1E7F2;
+  --color-ink-300: #CBD5E7;
+  --color-ink-400: #94A3BC;
+  --color-ink-500: #64748B;
+  --color-ink-600: #475569;
+  --color-ink-700: #334155;
+  --color-ink-800: #1E293B;
+  --color-ink-900: #0F172A;
+  --color-ink-950: #080F1E;
+
+  /* ── Layer 2: semantic aliases (values set in :root below) ───────── */
+  --color-surface-page:    var(--surface-page);
+  --color-surface-raised:  var(--surface-raised);
+  --color-surface-sunken:  var(--surface-sunken);
+  --color-surface-overlay: var(--surface-overlay);
+
+  --color-content-primary:   var(--text-primary);
+  --color-content-secondary: var(--text-secondary);
+  --color-content-tertiary:  var(--text-tertiary);
+
+  --color-nav-icon:     var(--nav-icon);
+  --color-line-subtle:  var(--border-subtle);
+  --color-line-default: var(--border-default);
+  --color-line-strong:  var(--border-strong);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger:  var(--danger);
+  --color-info:    var(--info);
+
+  /* ── Typography ──────────────────────────────────────────────────── */
+  --font-display: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-sans:    var(--font-inter),   ui-sans-serif, system-ui, sans-serif;
+
+  --text-caption:   12px;
+  --text-caption--line-height: 16px;
+  --text-body-sm:   13px;
+  --text-body-sm--line-height: 18px;
+  --text-body:      14px;
+  --text-body--line-height: 20px;
+  --text-body-lg:   16px;
+  --text-body-lg--line-height: 24px;
+  --text-h3:        16px;
+  --text-h3--line-height: 24px;
+  --text-h3--letter-spacing: -0.005em;
+  --text-h2:        20px;
+  --text-h2--line-height: 28px;
+  --text-h2--letter-spacing: -0.01em;
+  --text-h1:        24px;
+  --text-h1--line-height: 32px;
+  --text-h1--letter-spacing: -0.015em;
+  --text-display-sm: 30px;
+  --text-display-sm--line-height: 38px;
+  --text-display-sm--letter-spacing: -0.02em;
+  --text-display-lg: 36px;
+  --text-display-lg--line-height: 44px;
+  --text-display-lg--letter-spacing: -0.02em;
+
+  /* ── Radius ──────────────────────────────────────────────────────── */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-2xl: 20px;
+
+  /* ── Elevation ───────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px 0 rgb(16 24 40 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(16 24 40 / 0.06), 0 1px 2px -1px rgb(16 24 40 / 0.04);
+  --shadow-md: 0 4px 8px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.04);
+  --shadow-lg: 0 12px 16px -4px rgb(16 24 40 / 0.08), 0 4px 6px -2px rgb(16 24 40 / 0.03);
+  --shadow-xl: 0 20px 24px -4px rgb(16 24 40 / 0.10), 0 8px 8px -4px rgb(16 24 40 / 0.04);
+  --shadow-brand: 0 6px 16px -4px rgb(37 99 235 / 0.40);
+
+  /* ── Motion ──────────────────────────────────────────────────────── */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ═══ Layer 2 values — light ═══════════════════════════════════════ */
+:root {
+  --surface-page:    #F4F7FE;
+  --surface-raised:  #FFFFFF;
+  --surface-sunken:  #EDF1F9;
+  --surface-overlay: #FFFFFF;
+
+  --text-primary:   #1E293B;
+  --text-secondary: #64748B;
+  /* Solved to 4.5:1 on white — #94A3BC was 2.55:1 and failed as body text. */
+  --text-tertiary:  #6C778A;
+
+  --border-subtle:  #E1E7F2;
+  --border-default: #CBD5E7;
+  --border-strong:  #94A3BC;
+
+  /* Idle sidebar icons. Solved to 3.0:1 on white per WCAG 1.4.11. */
+  --nav-icon: #7696CB;
+
+  --color-primary:        #2563EB;
+  --color-primary-hover:  #1D4FD8;
+  --color-primary-active: #1E42AF;
+  --color-primary-subtle: #EFF5FF;
+  /* Filled surfaces that carry white text. Separate from --color-primary
+     because in dark mode the link colour and the button fill must differ. */
+  --color-primary-solid:  #2563EB;
+  --focus-ring:           #2563EB;
+
+  /* All solved to >=4.5:1 on a white card — badge text sits on a 12% tint
+     of these over the card, which is effectively white. */
+  --success: #05875F;
+  --warning: #B36205;
+  --danger:  #DC2626;
+  --info:    #07819F;
+
+  color-scheme: light;
+}
+
+/* ═══ Layer 2 values — dark. Designed, not inverted. ═══════════════ */
+.dark {
+  --surface-page:    #0B1220;
+  --surface-raised:  #131C2E;
+  --surface-sunken:  #0F1724;
+  --surface-overlay: #18223A;
+
+  --text-primary:   #E8EDF7;
+  --text-secondary: #94A3BC;
+  /* Solved to 4.5:1 on the raised dark surface. */
+  --text-tertiary:  #778599;
+
+  --border-subtle:  #1F2A3F;
+  --border-default: #2A3750;
+  --border-strong:  #3A4A68;
+
+  --nav-icon: #5E7CB8;
+
+  /* Brand lifts 600 -> 500 for TEXT on dark: #2563EB is too heavy to read.
+     The filled button keeps 600, because white on #3B82F6 is only 3.68:1
+     while white on #2563EB is 5.17:1 and still reads as a button against
+     the dark page at 3.62:1. */
+  --color-primary:        #3B82F6;
+  --color-primary-hover:  #60A5FA;
+  --color-primary-active: #2563EB;
+  --color-primary-subtle: rgb(59 130 246 / 0.14);
+  --color-primary-solid:  #2563EB;
+  --focus-ring:           #60A5FA;
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+  --info:    #06B6D4;
+
+  color-scheme: dark;
+}
+
+/* Elevation in dark mode is carried by borders, not shadows. */
+.dark {
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.40);
+  --shadow-lg: 0 12px 20px -4px rgb(0 0 0 / 0.45);
+  --shadow-xl: 0 24px 32px -8px rgb(0 0 0 / 0.55);
+  --shadow-brand: 0 6px 16px -4px rgb(59 130 246 / 0.30);
+}
+
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    background-color: var(--surface-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* One focus style. :focus-visible so mouse users do not see a ring. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+
+  /* Every salary, balance and percentage. Without this, digits jitter. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-default);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--border-strong); background-clip: content-box; }
+}
+
+/* Required, not optional — UI motion causes nausea for some users. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@utility shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 0%,
+    var(--surface-raised) 50%,
+    var(--surface-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}

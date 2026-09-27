@@ -1,0 +1,41 @@
+# ── Dependencies ──────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Build output ──────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Secrets — never commit ────────────────────────────────
+# A JWT secret or API key pushed to a public repo is scraped
+# within minutes. .env.example carries the shape, never values.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ── Generated code ────────────────────────────────────────
+# Prisma regenerates this from schema.prisma; committing it
+# creates enormous, meaningless diffs on every change.
+backend/src/generated/
+
+# ── Uploads — contain personal data ───────────────────────
+backend/uploads/
+
+# ── Logs & caches ─────────────────────────────────────────
+*.log
+npm-debug.log*
+.eslintcache
+.turbo/
+
+# ── OS / editor ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

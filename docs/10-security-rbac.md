@@ -199,6 +199,60 @@ guard and nobody notices.
 @Roles(Role.HR, Role.ADMIN)
 ```
 
+## Account administration
+
+`/settings/users` — ADMIN only. Lists every account with its role and sign-in
+status, and is the screen where privilege is granted.
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/admin/users` | List, filterable by role, status and search |
+| GET | `/admin/users/counts` | Totals for the stat row |
+| PATCH | `/admin/users/:id/role` | Change a role. Audited |
+| PATCH | `/admin/users/:id/status` | Disable or re-enable. Audited |
+
+### Disable, never delete
+
+**There is no DELETE endpoint, deliberately.** A deleted user orphans
+payslips, leave requests and audit rows — all of which are records that must
+survive the person leaving the company. A payslip whose employee no longer
+exists is a financial record with no owner.
+
+Disabling sets `users.is_active = false`. Login is refused with *"Your account
+has been deactivated"*, every historical record stays intact, and the account
+can be re-enabled later.
+
+### The four self-lockout guards
+
+Each of these is a way an administrator could make the system
+unadministrable with one click, so each is refused in the service:
+
+| Attempt | Response |
+|---|---|
+| Demote yourself | `400 You cannot remove your own admin access` |
+| Disable your own account | `400 You cannot disable your own account` |
+| Demote the last active admin | `400 This is the last active administrator` |
+| Disable the last active admin | `400 This is the last active administrator` |
+
+The last two matter most: they are reachable even when you are not the account
+being changed, so a self-check alone does not cover them.
+
+The UI reinforces this — the role select and the disable button are both
+disabled on your own row, with a tooltip saying why. That is convenience, not
+security; the service refuses regardless of what the client sends.
+
+### Bootstrapping the first administrator
+
+Chicken and egg: only an ADMIN can create an ADMIN. The first one is made
+outside the application, either by the seed script or by a direct update:
+
+```sql
+UPDATE users SET role = 'ADMIN' WHERE email = 'you@cadrehrms.com';
+```
+
+After that, everything goes through the UI. Record the bootstrap in
+`audit_logs` with `actor_user_id = 0` so the grant is not invisible.
+
 ## Endpoint permission matrix
 
 The complete authorisation specification. `self` means the endpoint exists for

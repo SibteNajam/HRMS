@@ -43,6 +43,7 @@ export const baseApi = createApi({
   refetchOnReconnect: true,
   tagTypes: [
     'Session',
+    'AdminUser',
     'Employee',
     'Department',
     'Attendance',

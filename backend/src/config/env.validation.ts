@@ -19,6 +19,22 @@ export const envSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   BCRYPT_ROUNDS: z.coerce.number().min(10).max(15).default(12),
 
+  // ── Registration policy ──────────────────────────────────────────────
+  /**
+   * open        anyone may sign up
+   * domain      only addresses on ALLOWED_EMAIL_DOMAINS may sign up
+   * invite_only only addresses pre-listed in role_assignments may sign up
+   */
+  SIGNUP_MODE: z.enum(['open', 'domain', 'invite_only']).default('domain'),
+
+  /** Comma separated, no @. Empty means any domain. */
+  ALLOWED_EMAIL_DOMAINS: z
+    .string()
+    .default('cadrehrms.com')
+    .transform((v) =>
+      v.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean),
+    ),
+
   ANTHROPIC_API_KEY: z.string().optional(),
   AI_MODEL: z.string().default('claude-opus-5'),
   AI_MAX_TOKENS: z.coerce.number().default(2048),

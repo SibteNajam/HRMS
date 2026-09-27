@@ -112,6 +112,21 @@ async function main() {
     },
   });
 
+  // ── Pre-assigned roles ───────────────────────────────────────────────
+  // These addresses get their role automatically when the person signs up.
+  // The emp./hr./ad. prefix is a readable convention for humans — the code
+  // reads this table, never the prefix, because the address is typed by the
+  // person registering.
+  await prisma.roleAssignment.createMany({
+    data: [
+      { email: 'hr.ali@cadrehrms.com',     role: 'HR',       note: 'HR lead' },
+      { email: 'hr.sana@cadrehrms.com',    role: 'HR',       note: 'HR officer' },
+      { email: 'ad.ghulam@cadrehrms.com',  role: 'ADMIN',    note: 'System administrator' },
+      { email: 'emp.sibte@cadrehrms.com',  role: 'EMPLOYEE', note: 'Example — unlisted addresses get this anyway' },
+    ],
+    skipDuplicates: true,
+  });
+
   // ── 60 days of attendance ────────────────────────────────────────────
   // Reports and every AI analytics feature have nothing to display without
   // this, and you cannot demo them.

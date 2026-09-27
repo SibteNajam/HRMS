@@ -138,6 +138,27 @@ model User {
   @@map("users")
 }
 
+/// Pre-assigned roles. An ADMIN adds an email here BEFORE the person signs
+/// up; registration then grants exactly this role. Anyone not listed gets
+/// EMPLOYEE — the least privileged option, so the system fails closed.
+///
+/// This is the authorization source. The email PREFIX (emp./hr./ad.) is a
+/// naming convention for humans and is never read by the code: the address is
+/// typed by the person signing up, so it cannot be trusted to grant privilege.
+model RoleAssignment {
+  id         Int       @id @default(autoincrement())
+  email      String    @unique @db.VarChar(120)
+  role       Role
+  note       String?   @db.VarChar(255)
+  /// Set the first time an account claims it. Kept, not deleted, so there is
+  /// a record of who was granted what and when.
+  claimedAt  DateTime? @map("claimed_at")
+  createdBy  Int?      @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@map("role_assignments")
+}
+
 // ─── Attendance ─────────────────────────────────────────────────────────
 
 model Attendance {

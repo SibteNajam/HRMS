@@ -7,6 +7,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { validateEnv } from './config/env.validation.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
@@ -24,6 +25,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
     ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
+    AdminModule,
   ],
   providers: [
     // Order matters: throttle, then authenticate, then authorise.

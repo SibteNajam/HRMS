@@ -74,6 +74,108 @@ between `localhost:3001` and `localhost:4000` works. If you ever need
 `sameSite: 'none'` — a different domain for the API — you must add a CSRF token;
 say so in your report rather than discovering it later.
 
+## How an account gets its role
+
+The question this answers: when someone signs up, how does the system decide
+whether they are an EMPLOYEE, HR or ADMIN?
+
+### What we do NOT do: infer the role from the email address
+
+A tempting scheme is to encode the role in the address —
+`emp.sibte@…`, `hr.ali@…`, `ad.ghulam@…` — and have the code read the prefix.
+
+**This is a privilege-escalation hole, not an authorization scheme.** The
+person signing up types their own email address. If the prefix grants the
+role, then the role is granted by a text input:
+
+```
+POST /auth/register  { "email": "ad.attacker@cadrehrms.com", ... }
+→ ADMIN
+```
+
+Every other control — the password, the guards, the signed JWT — is bypassed
+by one field. It also breaks in three quieter ways: addresses change when
+people marry or the company rebrands, and the role silently changes with them;
+promoting someone means changing their login identity and orphaning their
+history; and `Hr.Ali@` / `hrr.ali@` typos resolve unpredictably.
+
+**The prefix convention itself is good** — it makes a user list readable at a
+glance. Keep it as a naming convention. Just never let code read it.
+
+### What we do: a pre-assignment allowlist
+
+An ADMIN records the email and its role **before** that person registers.
+Registration looks the address up and grants exactly what was recorded.
+
+```
+role_assignments
+  email      hr.ali@cadrehrms.com
+  role       HR
+  note       HR lead
+  claimedAt  null → set when the account is created
+  createdBy  the admin who authorised it
+```
+
+The authority moves from the person registering to an existing administrator,
+which is the property that makes it safe.
+
+### Resolution order at signup
+
+```
+1. Is the domain allowed?          SIGNUP_MODE + ALLOWED_EMAIL_DOMAINS
+                                   → 403 if not
+2. Is the email in role_assignments?
+      yes, unclaimed  → grant that role, stamp claimedAt
+      yes, claimed    → grant EMPLOYEE, log a warning
+      no              → grant EMPLOYEE
+                        (or 403 when SIGNUP_MODE=invite_only)
+```
+
+**It fails closed.** Every path that is not an explicit, unclaimed assignment
+results in the least privileged role. An unknown address can never become HR
+or ADMIN by accident.
+
+The `claimedAt` check matters: without it, deleting an account would leave a
+live assignment that re-grants ADMIN to whoever registers that address next.
+
+### Signup modes
+
+| `SIGNUP_MODE` | Who may register | Use |
+|---|---|---|
+| `open` | anyone | Local development |
+| `domain` | company addresses only | **Default** |
+| `invite_only` | only pre-assigned addresses | Production |
+
+```bash
+SIGNUP_MODE=domain
+ALLOWED_EMAIL_DOMAINS=cadrehrms.com
+```
+
+### Managing assignments
+
+ADMIN only — this is the mechanism that grants privilege, so it is the one
+endpoint set HR must never reach.
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/admin/role-assignments` | List, claimed and pending |
+| POST | `/admin/role-assignments` | Pre-assign a role to an address |
+| DELETE | `/admin/role-assignments/:id` | Revoke an unclaimed assignment |
+| POST | `/admin/role-assignments/promote` | Change the role of an **existing** account |
+
+Two safeguards in the service: a claimed assignment cannot be deleted (it is
+the record of what was granted), and an admin cannot demote themselves —
+otherwise one click locks everyone out of user management.
+
+### Why not an invitation email with a token
+
+That is the fuller version of this pattern and the right answer for a
+commercial product: the invite carries a signed, expiring token, so the role
+cannot be claimed by anyone but the intended recipient. It needs working email
+delivery, token storage and an expiry policy. Recorded as a future
+enhancement; the allowlist gives the same authorization property without that
+machinery.
+
 ## Authorisation
 
 Two guards, applied globally, in this order.

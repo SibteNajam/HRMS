@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -27,11 +28,17 @@ export class AuthService {
   ) {}
 
   /**
-   * Self-registration. Always creates an EMPLOYEE — the role is never taken
-   * from the request body, or anyone could sign up as an ADMIN. Promotion to
-   * HR or ADMIN is done by an existing ADMIN afterwards.
+   * Self-registration.
+   *
+   * The role is never taken from the request body, and never inferred from the
+   * email address itself — the person signing up chooses that address, so
+   * trusting it would let anyone type their way to ADMIN. It comes from a
+   * role_assignments row an ADMIN created beforehand, and defaults to
+   * EMPLOYEE when there is none.
    */
   async register(dto: RegisterDto) {
+    this.assertDomainAllowed(dto.email);
+
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
       select: { id: true },
@@ -39,6 +46,8 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
+
+    const { role, assignmentId } = await this.resolveRole(dto.email);
 
     const department = dto.departmentId
       ? await this.prisma.department.findUnique({ where: { id: dto.departmentId } })
@@ -68,7 +77,7 @@ export class AuthService {
           designation: dto.designation ?? 'Employee',
           joiningDate: new Date(),
           baseSalary: 0,
-          user: { create: { email: dto.email, passwordHash, role: Role.EMPLOYEE } },
+          user: { create: { email: dto.email, passwordHash, role } },
           leaveBalances: {
             create: leaveTypes.map((lt) => ({
               leaveTypeId: lt.id,
@@ -85,8 +94,66 @@ export class AuthService {
       });
     });
 
-    this.logger.log(`Registered ${dto.email} as ${employee.employeeCode}`);
-    return { employeeCode: employee.employeeCode, email: dto.email };
+    if (assignmentId) {
+      // Kept, not deleted — the row is the record of who was granted what.
+      await this.prisma.roleAssignment.update({
+        where: { id: assignmentId },
+        data: { claimedAt: new Date() },
+      });
+    }
+
+    this.logger.log(
+      `Registered ${dto.email} as ${employee.employeeCode} with role ${role}` +
+        (assignmentId ? ' (pre-assigned)' : ' (default)'),
+    );
+    return { employeeCode: employee.employeeCode, email: dto.email, role };
+  }
+
+  /**
+   * Looks the address up in role_assignments. Fails closed: an unlisted
+   * address becomes an EMPLOYEE, never anything higher.
+   */
+  private async resolveRole(
+    email: string,
+  ): Promise<{ role: Role; assignmentId: number | null }> {
+    const assignment = await this.prisma.roleAssignment.findUnique({
+      where: { email },
+      select: { id: true, role: true, claimedAt: true },
+    });
+
+    if (!assignment) {
+      if (this.config.getOrThrow<string>('SIGNUP_MODE') === 'invite_only') {
+        throw new ForbiddenException(
+          'This email has not been invited. Ask an administrator to add it.',
+        );
+      }
+      return { role: Role.EMPLOYEE, assignmentId: null };
+    }
+
+    if (assignment.claimedAt) {
+      // The account was deleted and someone is trying to re-register against
+      // a spent assignment. Do not silently re-grant the elevated role.
+      this.logger.warn(`Re-use of a claimed role assignment for ${email}`);
+      return { role: Role.EMPLOYEE, assignmentId: null };
+    }
+
+    return { role: assignment.role as Role, assignmentId: assignment.id };
+  }
+
+  /** Blocks personal addresses when the deployment is domain-restricted. */
+  private assertDomainAllowed(email: string) {
+    const mode = this.config.getOrThrow<string>('SIGNUP_MODE');
+    if (mode === 'open') return;
+
+    const allowed = this.config.getOrThrow<string[]>('ALLOWED_EMAIL_DOMAINS');
+    if (allowed.length === 0) return;
+
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (!domain || !allowed.includes(domain)) {
+      throw new ForbiddenException(
+        `Registration is limited to ${allowed.map((d) => '@' + d).join(', ')} addresses.`,
+      );
+    }
   }
 
   /** EMP-0001, EMP-0002 … sequential, never reused. */

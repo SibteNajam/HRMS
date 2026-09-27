@@ -243,6 +243,27 @@ A month timeline, one row per person, approved leave drawn as a bar across
 the days it spans. Weekends are shaded, today is highlighted, and each leave
 type keeps a colour keyed to its id so it never shifts between renders.
 
+#### One grid track, three layers
+
+The ruler, the weekend shading and the bars are three stacked layers that
+must agree on where day 14 is. They share a single object:
+
+```ts
+const track = { gridTemplateColumns: `repeat(${days}, minmax(0, 1fr))` };
+```
+
+Bars are placed with `gridColumn: \`${from} / span ${length}\`` rather than a
+percentage offset. A percentage has to be recomputed against the container
+and drifts by a fraction of a column as the viewport changes; a grid column
+lands on the day or it does not compile.
+
+The weekend layer is `absolute inset-0` so it reaches the full row height.
+Shading drawn inside a padded flex row renders as floating blocks that stop
+short of the row edges — visible as artifacts rather than columns.
+
+Bars carry a styled tooltip, not the native `title` attribute: an OS tooltip
+cannot be themed and appears after a delay the user reads as lag.
+
 **Reasons are deliberately omitted.** Everyone can see who is off — that is
 what makes the calendar useful for planning — but "why" is between the
 employee and whoever approved it.

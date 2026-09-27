@@ -385,6 +385,63 @@ twice.
 
 ---
 
+## Migrations
+
+The schema in this document is the *design*. The thing that actually creates
+tables is a migration, and migrations are the record of how the database got to
+its current shape.
+
+```
+backend/prisma/
+├── schema.prisma                        the model (edit this)
+└── migrations/
+    ├── migration_lock.toml              records the provider — mysql
+    └── 20260927160339_init/
+        └── migration.sql                16 CREATE TABLE, 17 foreign keys
+```
+
+### Making a change
+
+Never edit a table by hand in MySQL, and never edit an applied migration. Both
+put the database out of step with the migration history, and the next person to
+run `migrate dev` on a clean machine gets a different schema from yours.
+
+```bash
+# 1. Edit prisma/schema.prisma
+# 2. Generate + apply a new migration
+npx prisma migrate dev --name add_holidays_table
+```
+
+Prisma diffs the schema against the migration history, writes a new timestamped
+folder with only the `ALTER`/`CREATE` needed, applies it, and regenerates the
+client. Commit that folder alongside the schema change.
+
+### Useful commands
+
+| Command | Does |
+|---|---|
+| `npm run db:migrate` | Create and apply a migration after a schema edit |
+| `npx prisma migrate status` | Check the database matches the migration history |
+| `npx prisma migrate deploy` | Apply pending migrations without generating — for production |
+| `npm run db:reset` | **Drops everything**, re-runs all migrations, re-seeds |
+| `npm run db:studio` | Browse the tables in a GUI |
+| `npm run db:setup` | First-time setup: create database, migrate, seed |
+
+`db:reset` is destructive and the right tool during development — if a
+migration goes wrong, reset rather than patching by hand.
+
+### What belongs in version control
+
+| Committed | Ignored |
+|---|---|
+| `schema.prisma` | `src/generated/` — regenerated from the schema |
+| `migrations/**` | `.env` — contains the JWT secret and database password |
+| `seed.ts` | `node_modules/` |
+| `.env.example` | |
+
+Committing the generated client produces enormous diffs on every schema change
+and adds nothing — any checkout can rebuild it with `npx prisma generate`.
+
 ## Seed data
 
 `prisma/seed.ts` must create, or the app cannot be used on a fresh database:

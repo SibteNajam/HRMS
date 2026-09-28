@@ -35,10 +35,15 @@ export const envSchema = z.object({
       v.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean),
     ),
 
-  ANTHROPIC_API_KEY: z.string().optional(),
-  AI_MODEL: z.string().default('claude-opus-5'),
-  AI_MAX_TOKENS: z.coerce.number().default(2048),
-  AI_MONTHLY_BUDGET_USD: z.coerce.number().default(10),
+  /** Groq serves open models behind an OpenAI-compatible API. */
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_BASE_URL: z.string().default('https://api.groq.com/openai/v1'),
+  AI_MODEL: z.string().default('openai/gpt-oss-120b'),
+  AI_MAX_TOKENS: z.coerce.number().default(1024),
+  /** Turns sent per question before we stop. Guards a looping model. */
+  AI_MAX_TURNS: z.coerce.number().default(5),
+  /** Conversation messages resent per turn. History is the main cost driver. */
+  AI_HISTORY_WINDOW: z.coerce.number().default(10),
 
   SMTP_HOST: z.string().default('smtp.gmail.com'),
   SMTP_PORT: z.coerce.number().default(587),

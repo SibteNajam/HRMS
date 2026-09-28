@@ -3,6 +3,66 @@
 How the AI is wired in, what it is allowed to do, and the guardrails that keep it
 from doing anything else.
 
+## Provider: Groq, not Claude
+
+The documents originally specified Claude. The build uses **Groq**, which
+serves open models behind an OpenAI-compatible API on a free tier — the
+deciding factor for a student project with no budget.
+
+```bash
+npm install openai
+```
+
+```ts
+new OpenAI({
+  apiKey: config.get('GROQ_API_KEY'),
+  baseURL: 'https://api.groq.com/openai/v1',
+});
+```
+
+| | Claude plan | Groq build |
+|---|---|---|
+| Model | `claude-opus-5` | `openai/gpt-oss-120b`, 131k context |
+| Tool calling | Yes | **Yes — verified** |
+| PDF input | Native | **Not supported** — text must be extracted first |
+| Cost | ~$0.015/question | Free, rate limited |
+
+The PDF row is the only real loss, and it only affects recruitment: the plan
+to hand the model a CV directly and let it read the layout was
+Claude-specific. On Groq that module needs `pdf-parse` first, and a
+two-column CV will come out scrambled.
+
+**None of the guardrails change.** They are architectural, not
+model-specific.
+
+## Why not RAG
+
+RAG retrieves passages from a document corpus by similarity. Seven of the
+eight AI features here ask questions about **structured rows**, and for those
+tool calling is not merely adequate — it is safer.
+
+**A vector store cannot enforce row-level permissions.** Embed "Ahmed has 9
+days remaining" as a chunk and retrieval works by similarity; nothing in the
+vector maths knows that Sara may not see Ahmed's row. Enforcing RBAC would
+mean rebuilding it inside the retrieval layer and getting it right for every
+chunk.
+
+Tool calling puts the check where it already lives:
+
+```ts
+await this.leave.balanceFor(jwtUser.employeeId);
+//                          ^^^^^^^^^^^^^^^^^^ the verified session
+```
+
+Two more reasons: the data is small and exact — a `SELECT` returns the right
+row where similarity search approximates it — and numbers embed badly, with
+"9 days" and "90 days" landing in nearly the same place.
+
+**Where RAG would genuinely fit:** an HR policy handbook. Unstructured prose,
+identical for every employee, no row-level permissions. The R&D report already
+scopes exactly that under Future Enhancements — "document and policy
+understanding using RAG" — and that assessment is correct.
+
 ## Model and SDK
 
 ```bash

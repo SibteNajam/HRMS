@@ -112,6 +112,67 @@ if (percentage < prev - 15)    flags.push({ type: 'DECLINING', from: prev, to: p
 Thresholds live in code so they are testable and explainable. If the AI decided
 what counts as "too late", you could not defend the number to an employee.
 
+## Screens
+
+| Route | Role | Purpose |
+|---|---|---|
+| `/attendance` | all | Check in/out, month calendar, own totals |
+| `/attendance/register` | HR, ADMIN | Everyone's status for one day, with inline correction |
+| `/attendance/timesheet` | all | Day-by-day hours and overtime; HR can pick an employee |
+| `/attendance/corrections` | HR, ADMIN | Every manual change, with before → after and the reason |
+| `/attendance/holidays` | HR, ADMIN | Company holidays. Deleting is ADMIN only |
+
+## NOT_MARKED is not ABSENT
+
+The register distinguishes three states, and conflating the first two is the
+most common way an attendance report ends up lying:
+
+| State | Means |
+|---|---|
+| `NOT_MARKED` | No row exists. Nobody has said anything about this person today |
+| `ABSENT` | A row exists saying they did not attend |
+| `ON_LEAVE` | Approved leave, written by the leave module |
+
+The nightly job at 23:55 is what converts the first into the second for the
+day just finished. HR can also run it by hand from the register — the
+button says how many people it will affect.
+
+## Holidays
+
+A date in `holidays` is not a working day. It is excluded from the attendance
+percentage denominator, the nightly absentee job skips it, and check-in is
+refused with the holiday's name.
+
+Declaring a holiday **retroactively converts `ABSENT` rows on that date to
+`HOLIDAY`**, so a day declared after the fact stops counting against people
+who were marked absent on it.
+
+## Corrections re-derive status
+
+If HR changes the times but not the status, the status is recalculated from
+the new times rather than left alone. Otherwise a record can end up saying
+`HALF_DAY` while its own timestamps show a nine-hour day — and payroll reads
+the timestamps.
+
+Every correction writes an audit row with the reason, the before state and
+the after state. Attendance feeds payroll, so a manual change to it is a
+change to what someone is paid.
+
+## Tested
+
+`attendance-policy.spec.ts` covers the arithmetic — 29 cases, including:
+
+- The late boundary at exactly the grace period, one minute either side
+- Half-day exactly on the cutoff
+- `LATE` surviving a full day, but `HALF_DAY` winning on a short one
+- Overtime never negative, and zero while still working
+- **Approved leave excluded from the denominator** — 8 present + 2 on leave
+  is 100%, not 80%
+- Holidays excluded the same way
+- `null` rather than `0%` when there is no history
+- A Friday–Saturday weekend, not just Saturday–Sunday
+- `dateOnly` not shifting a day in a positive-offset timezone
+
 ## Frontend
 
 ### Screens

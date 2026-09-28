@@ -48,6 +48,7 @@ export const baseApi = createApi({
     'Department',
     'Attendance',
     'AttendanceSummary',
+    'Holiday',
     'LeaveRequest',
     'LeaveBalance',
     'LeaveType',

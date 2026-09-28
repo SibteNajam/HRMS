@@ -9,6 +9,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { LeaveModule } from './modules/leave/leave.module.js';
+import { AttendanceModule } from './modules/attendance/attendance.module.js';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
@@ -28,6 +29,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
     AuthModule,
     AdminModule,
     LeaveModule,
+    AttendanceModule,
   ],
   providers: [
     // Order matters: throttle, then authenticate, then authorise.

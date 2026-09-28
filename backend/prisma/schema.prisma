@@ -177,6 +177,19 @@ model Attendance {
   @@map("attendance")
 }
 
+/// Company holidays. A date here is not a working day: it is excluded from
+/// the attendance percentage denominator and from leave working-day counts,
+/// and the nightly absentee job skips it.
+model Holiday {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique @db.Date
+  name      String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("holidays")
+}
+
 // ─── Leave ──────────────────────────────────────────────────────────────
 
 model LeaveType {

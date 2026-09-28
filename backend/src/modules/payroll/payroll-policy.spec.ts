@@ -201,4 +201,17 @@ describe('flags', () => {
   it('flags nothing on an ordinary payslip', () => {
     expect(flagPayslip(clean, 44_000)).toHaveLength(0);
   });
+
+  it('distinguishes an unset salary from deductions eating the pay', () => {
+    // Both are zero net, but only one is fixed in Salary Structure.
+    const unset = calculateNetSalary(base({ baseSalary: 0, allowances: 0 }));
+    const codes = flagPayslip(unset, null).map((f) => f.code);
+    expect(codes).toContain('NO_SALARY');
+    expect(codes).not.toContain('ZERO_NET');
+
+    const consumed = calculateNetSalary(base({ otherDeductions: 99_999 }));
+    const codes2 = flagPayslip(consumed, null).map((f) => f.code);
+    expect(codes2).toContain('ZERO_NET');
+    expect(codes2).not.toContain('NO_SALARY');
+  });
 });

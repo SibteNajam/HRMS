@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -38,6 +39,12 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const [editing, setEditing] = useState<RunPayslip | null>(null);
 
   const isDraft = run?.status === 'DRAFT';
+  // Finalising these would issue a payslip for nothing and lock it as a
+  // financial record. The fix is one screen away, so say so rather than
+  // letting it through.
+  const unsetSalary = (run?.payslips ?? []).filter((p) =>
+    p.flags.some((f) => f.code === 'NO_SALARY'),
+  );
 
   async function doFinalise() {
     try {
@@ -92,10 +99,16 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
               <Button
                 variant="primary"
                 icon={isAdmin ? ShieldCheck : Lock}
-                disabled={!isAdmin}
+                disabled={!isAdmin || unsetSalary.length > 0}
                 loading={finalising}
                 onClick={() => setConfirming(true)}
-                title={isAdmin ? undefined : 'Only an administrator can finalise payroll'}
+                title={
+                  !isAdmin
+                    ? 'Only an administrator can finalise payroll'
+                    : unsetSalary.length > 0
+                      ? 'Set a salary for everyone in this run first'
+                      : undefined
+                }
               >
                 {isAdmin ? 'Finalise payroll' : 'Admin approval required'}
               </Button>
@@ -114,6 +127,29 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
         <Total label="Dues recovered" value={run.totals.duesRecovered} />
       </div>
 
+      {unsetSalary.length > 0 && (
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] p-4">
+          <CircleAlert size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-danger" aria-hidden />
+          <div>
+            <p className="font-semibold text-danger">
+              {unsetSalary.length} employee{unsetSalary.length === 1 ? ' has' : 's have'} no salary set
+            </p>
+            <p className="mt-0.5 text-body-sm text-content-secondary">
+              {unsetSalary.map((p) => `${p.employee.firstName} ${p.employee.lastName}`).join(', ')}
+              {' — '}accounts created by self sign-up start with no salary. Set
+              one under Payroll → Salary Structure, then delete this draft and
+              recalculate.
+            </p>
+            <Link
+              href="/payroll/structure"
+              className="mt-2 inline-block text-body-sm font-medium text-[var(--color-primary)] underline-offset-4 hover:underline"
+            >
+              Open Salary Structure →
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Anomalies above the table — HR must see these before scrolling. */}
       {run.flaggedCount > 0 && (
         <div className="mb-5 rounded-xl border border-[color-mix(in_srgb,var(--warning)_30%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] p-4">
@@ -121,15 +157,23 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             <TriangleAlert size={17} strokeWidth={2} />
             {run.flaggedCount} payslip{run.flaggedCount === 1 ? '' : 's'} need a look
           </p>
-          <ul className="mt-2.5 flex flex-col gap-1.5">
+          <ul className="mt-2.5 flex flex-col gap-2">
             {run.payslips.filter((p) => p.flags.length).map((p) => (
               <li key={p.id} className="text-body-sm">
                 <span className="font-medium text-content-primary">
                   {p.employee.firstName} {p.employee.lastName}
                 </span>
-                <span className="text-content-secondary">
-                  {' '}— {p.flags.map((f) => f.label).join(' · ')}
-                </span>
+                {p.flags.map((f) => (
+                  <span key={f.code} className="block pl-0.5 text-content-secondary">
+                    <span className={cn(
+                      'font-medium',
+                      f.level === 'danger' ? 'text-danger' : 'text-warning',
+                    )}>
+                      {f.label}
+                    </span>
+                    {' — '}{f.detail}
+                  </span>
+                ))}
               </li>
             ))}
           </ul>
@@ -184,7 +228,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                         )}
                       </div>
                     </td>
-                    <Money v={p.baseSalary} />
+                    <Money v={p.baseSalary} alwaysShow />
                     <Money v={p.allowances} />
                     <Money v={p.overtimeAmount} tone={p.overtimeAmount > 0 ? 'success' : undefined} />
                     <Money v={p.bonus} tone={p.bonus > 0 ? 'success' : undefined} />
@@ -240,14 +284,25 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   );
 }
 
-function Money({ v, tone }: { v: number; tone?: 'success' | 'danger' }) {
+/**
+ * A dash means "nothing here". Zero base salary means "not set", which is a
+ * different thing and must not be hidden behind the same glyph.
+ */
+function Money({
+  v, tone, alwaysShow,
+}: {
+  v: number;
+  tone?: 'success' | 'danger';
+  alwaysShow?: boolean;
+}) {
+  const blank = v === 0 && !alwaysShow;
   return (
     <td className={cn(
       'tabular px-3 py-3 text-right text-body',
       tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : 'text-content-primary',
       v === 0 && 'text-content-tertiary',
     )}>
-      {v === 0 ? '—' : formatCurrency(v)}
+      {blank ? '—' : formatCurrency(v)}
     </td>
   );
 }

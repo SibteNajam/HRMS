@@ -206,7 +206,19 @@ export function flagPayslip(
     });
   }
 
-  if (result.netSalary === 0) {
+  // Distinguish "no salary has been set" from "deductions ate the salary".
+  // Both show zero net, but one is a missing setup step and the other is a
+  // real payroll event — and only one of them is fixed in Salary Structure.
+  if (result.baseSalary === 0 && result.allowances === 0) {
+    flags.push({
+      code: 'NO_SALARY',
+      level: 'danger',
+      label: 'No salary set',
+      detail:
+        'This employee has no base salary. Set it under Payroll → Salary ' +
+        'Structure, then delete and recalculate this draft.',
+    });
+  } else if (result.netSalary === 0) {
     flags.push({
       code: 'ZERO_NET',
       level: 'danger',

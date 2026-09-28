@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Layers, PenLine, Search } from 'lucide-react';
+import { CircleAlert, Layers, PenLine, Search } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Avatar } from '@/components/ui/Avatar';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { useDebounced } from '@/hooks/useDebounced';
+import { cn } from '@/lib/cn';
 import { formatCurrency } from '@/lib/format';
 import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useAppSelector } from '@/store/hooks';
@@ -30,6 +31,9 @@ export default function SalaryStructurePage() {
     `${r.firstName} ${r.lastName} ${r.employeeCode}`.toLowerCase().includes(debounced.toLowerCase()),
   );
   const monthlyTotal = rows.reduce((sum, r) => sum + r.monthlyCost, 0);
+  // Self sign-up creates an employee with no salary. Until one is set they
+  // produce a zero payslip, so this is the first thing to fix.
+  const unset = rows.filter((r) => r.monthlyCost === 0);
 
   return (
     <>
@@ -43,6 +47,21 @@ export default function SalaryStructurePage() {
         <Stat label="Monthly base cost" value={formatCurrency(monthlyTotal)} />
         <Stat label="Annual cost" value={formatCurrency(monthlyTotal * 12)} />
       </div>
+
+      {unset.length > 0 && (
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-[color-mix(in_srgb,var(--warning)_30%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] p-4">
+          <CircleAlert size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+          <div>
+            <p className="font-semibold text-warning">
+              {unset.length} employee{unset.length === 1 ? '' : 's'} with no salary set
+            </p>
+            <p className="mt-0.5 text-body-sm text-content-secondary">
+              {unset.map((r) => `${r.firstName} ${r.lastName}`).join(', ')} — they
+              will produce a zero payslip until a salary is set.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-line-subtle bg-surface-raised shadow-sm">
         <div className="border-b border-line-subtle p-4">
@@ -77,13 +96,25 @@ export default function SalaryStructurePage() {
               <tbody>
                 {rows.map((r) => {
                   const name = `${r.firstName} ${r.lastName}`;
+                  const noSalary = r.monthlyCost === 0;
                   return (
-                    <tr key={r.id} className="border-t border-line-subtle transition-colors hover:bg-surface-hover">
+                    <tr
+                      key={r.id}
+                      className={cn(
+                        'border-t border-line-subtle transition-colors hover:bg-surface-hover',
+                        noSalary && 'bg-[color-mix(in_srgb,var(--warning)_6%,transparent)]',
+                      )}
+                    >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           <Avatar name={name} size="md" />
                           <div className="min-w-0">
-                            <p className="truncate text-body font-medium text-content-primary">{name}</p>
+                            <p className="flex items-center gap-1.5 truncate text-body font-medium text-content-primary">
+                              {name}
+                              {noSalary && (
+                                <CircleAlert size={14} className="shrink-0 text-warning" aria-label="No salary set" />
+                              )}
+                            </p>
                             <p className="truncate text-caption text-content-tertiary">
                               {r.designation} · {r.department.name}
                             </p>

@@ -293,3 +293,33 @@ must cover:
 - [ ] The AI explanation states the same numbers as the payslip
 - [ ] Anomaly flags come from the rules engine, not the model
 - [ ] Every test above passes
+
+
+## Employees with no salary set
+
+Self sign-up creates an employee record with `baseSalary: 0` — a salary is
+something an administrator decides, not something someone types about
+themselves at registration.
+
+Payroll then calculated a perfectly correct zero payslip for them and flagged
+it as *"Net pay is zero"*, which is true and useless: it describes the symptom
+and not the cause, and the cause is one screen away.
+
+Three changes:
+
+**A distinct flag.** `NO_SALARY` fires when base and allowances are both zero,
+and says what to do — *"Set it under Payroll → Salary Structure, then delete
+and recalculate this draft."* `ZERO_NET` is now reserved for the genuine
+case where deductions consumed a real salary. Both show zero net; only one is
+a missing setup step.
+
+**Finalising is blocked.** Issuing a zero payslip locks it as a financial
+record for someone who was simply never set up. The button disables with a
+tooltip, and a panel names the affected employees with a link to fix it.
+
+**A zero base salary no longer renders as a dash.** A dash means "nothing
+here"; zero base pay means "not set". Showing both the same way hid the
+problem. Base salary always renders its figure.
+
+The Salary Structure screen highlights the same people, so the problem is
+visible before a payroll run is ever started rather than only after.

@@ -76,6 +76,8 @@ export class AuthService {
           departmentId: department.id,
           designation: dto.designation ?? 'Employee',
           joiningDate: new Date(),
+          // No salary until an administrator sets one. Payroll flags this
+          // rather than issuing a zero payslip.
           baseSalary: 0,
           user: { create: { email: dto.email, passwordHash, role } },
           leaveBalances: {
@@ -104,7 +106,8 @@ export class AuthService {
 
     this.logger.log(
       `Registered ${dto.email} as ${employee.employeeCode} with role ${role}` +
-        (assignmentId ? ' (pre-assigned)' : ' (default)'),
+        (assignmentId ? ' (pre-assigned)' : ' (default)') +
+        ' — no salary set yet',
     );
     return { employeeCode: employee.employeeCode, email: dto.email, role };
   }

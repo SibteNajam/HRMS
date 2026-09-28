@@ -102,6 +102,10 @@ export const payrollApi = baseApi.injectEndpoints({
       query: (params) => ({ url: '/payroll/payslips/me/compare', params }),
     }),
 
+    explainPayslip: build.mutation<{ explanation: string }, number>({
+      query: (id) => ({ url: `/payroll/payslips/${id}/explain`, method: 'POST' }),
+    }),
+
     getRuns: build.query<PayrollRun[], void>({
       query: () => '/payroll/runs',
       providesTags: [{ type: 'PayrollRun', id: 'LIST' }],
@@ -164,6 +168,7 @@ export const payrollApi = baseApi.injectEndpoints({
 
 export const {
   useGetMyPayslipsQuery, useGetPayslipQuery, useComparePayslipQuery,
+  useExplainPayslipMutation,
   useGetRunsQuery, useGetRunQuery, useCreateRunMutation,
   useAdjustPayslipMutation, useFinaliseRunMutation, useDeleteRunMutation,
   useGetSalaryStructureQuery, useUpdateSalaryMutation,

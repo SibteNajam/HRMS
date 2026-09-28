@@ -369,3 +369,57 @@
 @utility animate-breathe {
   animation: breathe 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Print
+   "Save as PDF" lives in every print dialog, so a payslip needs no PDF
+   library — only a stylesheet that removes everything except the payslip
+   and turns the dark theme off, since almost nobody wants a black page.
+   ═══════════════════════════════════════════════════════════════════════ */
+@media print {
+  /* Force light. A dark-mode payslip prints as a solid black rectangle. */
+  :root,
+  :root.dark {
+    --surface-page:    #FFFFFF;
+    --surface-raised:  #FFFFFF;
+    --surface-sunken:  #FFFFFF;
+    --surface-overlay: #FFFFFF;
+    --text-primary:    #000000;
+    --text-secondary:  #333333;
+    --text-tertiary:   #555555;
+    --border-subtle:   #CCCCCC;
+    --border-default:  #999999;
+    color-scheme: light;
+  }
+
+  aside,
+  header,
+  nav,
+  [role='dialog'],
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background: #FFFFFF !important;
+    font-size: 12pt;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+
+  /* Collapsed payslips must not print as blank pages. */
+  [data-printing] .grid-rows-\[0fr\] {
+    display: none !important;
+  }
+
+  * {
+    box-shadow: none !important;
+  }
+
+  @page {
+    margin: 18mm;
+  }
+}

@@ -13,5 +13,6 @@ import { AttendanceModule } from '../attendance/attendance.module.js';
   imports: [LeaveModule, AttendanceModule],
   controllers: [AiController],
   providers: [AiService, ToolExecutorService],
+  exports: [AiService],
 })
 export class AiModule {}

@@ -206,6 +206,67 @@ export class AiService {
     }
   }
 
+  /**
+   * Explains a payslip in plain language.
+   *
+   * The differences are computed by the payroll service and handed over as
+   * facts — the model describes them, it never subtracts. That is the whole
+   * point of rule 2, and a payslip is where it matters most.
+   */
+  async explainPayslip(
+    user: JwtUser,
+    comparison: {
+      current: Record<string, number>;
+      previous: Record<string, number> | null;
+      differences: { field: string; from: number; to: number; change: number }[];
+    },
+    currency = 'PKR',
+  ) {
+    if (!this.client) {
+      throw new ServiceUnavailableException('The assistant is not configured.');
+    }
+
+    const prompt = comparison.previous
+      ? `Explain this payslip to the employee who received it, in two or three
+sentences of plain English.
+
+These figures are already calculated. Report them exactly; do not add,
+subtract or recompute anything.
+
+This month: ${JSON.stringify(comparison.current)}
+Last month: ${JSON.stringify(comparison.previous)}
+
+What changed, already worked out for you:
+${comparison.differences
+  .map((d) => `- ${d.field}: ${d.from} → ${d.to} (${d.change > 0 ? '+' : ''}${d.change})`)
+  .join('\n')}
+
+Lead with whether their take-home went up or down and by how much, then give
+the reason. Amounts are in ${currency}. Do not use a table. Do not greet them.`
+      : `Explain this payslip to the employee who received it, in two or three
+sentences of plain English.
+
+${JSON.stringify(comparison.current)}
+
+This is their first payslip, so there is nothing to compare it with. Say what
+makes up the pay. Report the figures exactly; do not recompute anything.
+Amounts are in ${currency}. Do not use a table. Do not greet them.`;
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.config.getOrThrow<string>('AI_MODEL'),
+        max_tokens: 400,
+        messages: [
+          { role: 'system', content: buildSystemPrompt(user, await this.profileSnapshot(user)) },
+          { role: 'user', content: prompt },
+        ],
+      });
+      return { explanation: response.choices[0].message.content?.trim() ?? '' };
+    } catch (err) {
+      return this.handleProviderError(err);
+    }
+  }
+
   /** Friendly names for the "thinking" line in the UI. */
   static labelFor(tool: string) {
     return TOOL_LABELS[tool] ?? 'Looking that up';

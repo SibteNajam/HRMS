@@ -1,7 +1,10 @@
 import {
-  Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
+  Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe,
+  Patch, Post, Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PayrollService } from './payroll.service.js';
+import { AiService } from '../ai/ai.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Audit } from '../../common/decorators/audit.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
@@ -11,7 +14,10 @@ import { AdjustPayslipDto, CreateRunDto, UpdateSalaryDto } from './dto/payroll.d
 
 @Controller('payroll')
 export class PayrollController {
-  constructor(private readonly payroll: PayrollService) {}
+  constructor(
+    private readonly payroll: PayrollService,
+    private readonly ai: AiService,
+  ) {}
 
   // ── Own ───────────────────────────────────────────────────────────
 
@@ -32,6 +38,23 @@ export class PayrollController {
     @Query('year') year: string,
   ) {
     return this.payroll.comparePayslips(user.employeeId!, Number(month), Number(year));
+  }
+
+  /**
+   * "Why is this different from last month?"
+   *
+   * The differences are computed here and handed to the model as facts. It
+   * writes the sentence; it does not do the arithmetic.
+   */
+  @Post('payslips/:id/explain')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async explain(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
+    const slip = await this.payroll.getPayslip(user, id);
+    const comparison = await this.payroll.comparePayslips(
+      slip.employeeId, slip.payrollRun.month, slip.payrollRun.year,
+    );
+    return this.ai.explainPayslip(user, comparison as never);
   }
 
   // ── Runs ──────────────────────────────────────────────────────────

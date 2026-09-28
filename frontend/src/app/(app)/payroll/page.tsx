@@ -1,13 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, FileText, Wallet } from 'lucide-react';
+import { toast } from 'sonner';
+import { ChevronDown, Download, FileText, Sparkles, Wallet } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { Button } from '@/components/ui/Button';
+import { ThinkingDots } from '@/components/ui/loading';
+import { getErrorMessage } from '@/lib/getErrorMessage';
 import {
-  monthLabel, useGetMyPayslipsQuery, type MyPayslip,
+  monthLabel, useExplainPayslipMutation, useGetMyPayslipsQuery, type MyPayslip,
 } from '@/store/api/endpoints/payrollApi';
 
 export default function MyPayslipsPage() {
@@ -18,7 +22,7 @@ export default function MyPayslipsPage() {
     <>
       <PageHeader
         title="My payslips"
-        subtitle="Issued payslips. A payslip appears here once payroll for that month is finalised."
+        subtitle="Issued payslips. Expand one to see the breakdown, ask why it changed, or download it."
       />
 
       <div className="overflow-hidden rounded-xl border border-line-subtle bg-surface-raised shadow-sm">
@@ -88,6 +92,29 @@ export default function MyPayslipsPage() {
 
 /** Earnings left, deductions right, net large at the bottom. */
 function Breakdown({ p }: { p: MyPayslip }) {
+  const [explain, { isLoading }] = useExplainPayslipMutation();
+  const [explanation, setExplanation] = useState<string | null>(null);
+
+  async function askWhy() {
+    try {
+      const r = await explain(p.id).unwrap();
+      setExplanation(r.explanation);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  }
+
+  /**
+   * Browser print, not a PDF library. "Save as PDF" is in every print
+   * dialog, the output is selectable text rather than an image, and it needs
+   * no dependency. The print stylesheet hides everything but the payslip.
+   */
+  function download() {
+    document.body.setAttribute('data-printing', String(p.id));
+    window.print();
+    setTimeout(() => document.body.removeAttribute('data-printing'), 500);
+  }
+
   return (
     <div className="border-t border-line-subtle bg-surface-sunken px-5 py-5">
       <div className="grid gap-5 sm:grid-cols-2">
@@ -118,6 +145,37 @@ function Breakdown({ p }: { p: MyPayslip }) {
           {formatCurrency(p.netSalary)}
         </span>
       </div>
+
+      {/* What an employee actually does with a payslip: understand it, and
+          keep a copy for a landlord, a bank or a visa application. */}
+      <div className="mt-5 flex flex-wrap gap-2 border-t border-line-default pt-4 print:hidden">
+        <Button variant="secondary" icon={Sparkles} loading={isLoading} onClick={askWhy}>
+          Why is this amount?
+        </Button>
+        <Button variant="secondary" icon={Download} onClick={download}>
+          Download
+        </Button>
+      </div>
+
+      {isLoading && (
+        <div className="mt-3 rounded-lg border border-line-subtle bg-surface-raised px-4 py-3">
+          <ThinkingDots label="Reading your payslips…" />
+        </div>
+      )}
+
+      {explanation && !isLoading && (
+        <div className="animate-fade-up mt-3 rounded-lg border border-[color-mix(in_srgb,var(--info)_30%,transparent)] bg-[color-mix(in_srgb,var(--info)_8%,transparent)] p-4 print:hidden">
+          <p className="mb-1.5 flex items-center gap-1.5 text-caption font-semibold text-info">
+            <Sparkles size={13} strokeWidth={2} />
+            AI explanation
+          </p>
+          <p className="text-body leading-relaxed text-content-primary">{explanation}</p>
+          <p className="mt-2 text-caption text-content-tertiary">
+            Generated from your own payslips. The figures above are the record —
+            ask HR if anything looks wrong.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

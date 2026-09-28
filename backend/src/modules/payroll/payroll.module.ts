@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { PayrollController } from './payroll.controller.js';
 import { PayrollService } from './payroll.service.js';
 import { AttendanceModule } from '../attendance/attendance.module.js';
+import { AiModule } from '../ai/ai.module.js';
 
 @Module({
-  imports: [AttendanceModule],
+  imports: [AttendanceModule, AiModule],
   controllers: [PayrollController],
   providers: [PayrollService],
   exports: [PayrollService],

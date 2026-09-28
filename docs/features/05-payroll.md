@@ -353,3 +353,45 @@ row.
 **The calculation is unchanged.** What changed is that the screen now answers
 the question the number provokes. A figure that is right but unexplained costs
 the same trust as one that is wrong.
+
+
+## What an employee does with a payslip
+
+Viewing it is the least of it. Three things people actually need:
+
+| Action | Why |
+|---|---|
+| **Understand it** | "Why is this amount?" — the report calls for exactly this |
+| **Keep a copy** | Landlords, banks and visa applications all ask for payslips |
+| **Query it** | If a figure looks wrong, they need to know who to tell |
+
+### "Why is this amount?"
+
+The R&D report specifies this twice — *"the AI can explain payroll results in
+understandable language"* (§7.4) and *"Why was my salary lower this month?"*
+as an employee example (§8).
+
+The differences between this month and last are **computed by the payroll
+service** and handed to the model as facts:
+
+```
+Base salary: 120000 → 120000 (0)
+Overtime:    18400  → 21702.33 (+3302.33)
+Net:         150400 → 153702.33 (+3302.33)
+```
+
+The model writes the sentence. It never subtracts — that is rule 2, and a
+payslip is where it matters most. The panel closes with a line saying the
+figures above are the record and to ask HR if anything looks wrong.
+
+### Download
+
+Browser print rather than a PDF library. "Save as PDF" is in every print
+dialog, the output is selectable text instead of an image, and it adds no
+dependency.
+
+The print stylesheet does two things that matter. It hides the sidebar,
+topbar and buttons so the page is only the payslip. And it **forces light
+colours even in dark mode** — a dark-mode payslip prints as a solid black
+rectangle, which is the kind of detail nobody notices until someone hands a
+landlord a black page.

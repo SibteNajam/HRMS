@@ -98,6 +98,49 @@ response, and never reaches the browser.
 
 Default to `claude-opus-5`, configured through `AI_MODEL` in `.env`.
 
+## Three tiers of tool
+
+| Tier | Count | Who gets it | Contains |
+|---|---|---|---|
+| **Self** | 9 | everyone | The asker's own profile, attendance, leave, dues, payslips, team |
+| **Shared** | 4 | everyone | Leave policy, working-hours policy, holidays, who is off |
+| **HR** | 8 | HR and ADMIN | Employee search, org-wide attendance, the register, approvals, balances, dues, headcount, payroll totals |
+
+The shared tier is the one worth explaining. "What leave types are there" and
+"when am I marked late" describe **how the company works**, not what anyone
+earns or did. There is nothing to scope, and withholding them made the
+assistant refuse reasonable questions.
+
+Before it existed, "what leave types exist?" was answered with the asker's
+personal balance — the model reached for the only tool it had, and gave a
+policy answer that was actually about one person.
+
+## Relative dates are resolved before the call
+
+The system prompt carries a date block computed server-side:
+
+```
+Today: 2026-09-28 (Monday)
+This month: 2026-09-01 to 2026-09-30 (month 9, year 2026)
+Last month: month 8, year 2026
+Next week: 2026-10-05 to 2026-10-11
+```
+
+Without it, "who is off next week" was answered by calling the daily register
+twice and covering two days of a seven-day week — a confident answer from an
+incomplete read, which is worse than a refusal. With `get_who_is_off` taking a
+range and the dates anchored, it is one call covering the whole week.
+
+## When to ask instead of answer
+
+Rule 8 tells the model to ask one short clarifying question when a question is
+ambiguous **in a way that changes the answer**, and to just answer when it is
+not. "Show me their attendance" now returns *"Which employee's attendance
+would you like to view?"* rather than picking someone.
+
+Rule 10 covers the empty result: say so plainly and suggest what would help.
+An empty list presented as a finding is how a report starts lying.
+
 ## The three guardrails
 
 Everything in this module exists to enforce these. They are also the answer when

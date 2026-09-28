@@ -83,4 +83,13 @@ export const TOOL_LABELS: Record<string, string> = {
   get_pending_leave_requests: 'Checking pending leave requests',
   get_leave_balances_overview: 'Reading leave balances',
   get_outstanding_dues: 'Checking outstanding dues',
+  get_my_profile: 'Reading your profile',
+  get_my_today_status: 'Checking today',
+  get_my_team: 'Looking up your team',
+  get_leave_policy: 'Reading the leave policy',
+  get_work_policy: 'Reading the working-hours policy',
+  get_holidays: 'Checking the holiday calendar',
+  get_who_is_off: 'Checking who is on leave',
+  get_organisation_stats: 'Counting the organisation',
+  get_payroll_summary: 'Reading payroll runs',
 };

@@ -5,7 +5,7 @@ import { AttendanceService } from '../../attendance/attendance.service.js';
 import { Role } from '../../../common/enums/role.enum.js';
 import type { JwtUser } from '../../../common/types/jwt-user.js';
 import { dateOnly } from '../../attendance/attendance-policy.js';
-import { HR_TOOL_NAMES, SELF_TOOL_NAMES } from './tool-definitions.js';
+import { HR_TOOL_NAMES, SELF_TOOL_NAMES, SHARED_TOOL_NAMES } from './tool-definitions.js';
 
 /**
  * Runs a tool the model asked for.
@@ -31,7 +31,11 @@ export class ToolExecutorService {
       this.logger.warn(`EMPLOYEE ${user.email} attempted HR tool ${name}`);
       throw new ForbiddenException('Not permitted');
     }
-    if (!SELF_TOOL_NAMES.has(name) && !HR_TOOL_NAMES.has(name)) {
+    if (
+      !SELF_TOOL_NAMES.has(name) &&
+      !SHARED_TOOL_NAMES.has(name) &&
+      !HR_TOOL_NAMES.has(name)
+    ) {
       throw new ForbiddenException(`Unknown tool ${name}`);
     }
 
@@ -45,6 +49,163 @@ export class ToolExecutorService {
 
     switch (name) {
       // ── Self ────────────────────────────────────────────────────────
+      case 'get_my_profile': {
+        const e = await this.prisma.employee.findUniqueOrThrow({
+          where: { id: this.selfId(user) },
+          select: {
+            employeeCode: true, firstName: true, lastName: true, email: true,
+            designation: true, joiningDate: true, employmentStatus: true,
+            department: { select: { name: true } },
+          },
+        });
+        const months = Math.floor(
+          (Date.now() - e.joiningDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44),
+        );
+        return {
+          employeeCode: e.employeeCode,
+          name: `${e.firstName} ${e.lastName}`,
+          email: e.email,
+          jobTitle: e.designation,
+          department: e.department.name,
+          joined: this.day(e.joiningDate),
+          // Computed here so the model never subtracts dates itself.
+          serviceMonths: months,
+          serviceDescription:
+            months >= 12
+              ? `${Math.floor(months / 12)} year${months >= 24 ? 's' : ''} ${months % 12} month${months % 12 === 1 ? '' : 's'}`
+              : `${months} month${months === 1 ? '' : 's'}`,
+          employmentStatus: e.employmentStatus,
+          role: user.role,
+        };
+      }
+
+      case 'get_my_today_status': {
+        const t = await this.attendance.today(user);
+        return {
+          date: this.day(new Date(t.date)),
+          isWeekend: t.isWeekend,
+          holiday: t.holiday?.name ?? null,
+          checkedIn: !!t.record?.checkIn,
+          checkedOut: !!t.record?.checkOut,
+          checkInTime: t.record?.checkIn ? this.time(t.record.checkIn) : null,
+          checkOutTime: t.record?.checkOut ? this.time(t.record.checkOut) : null,
+          status: t.record?.status ?? 'NOT_MARKED',
+          minutesWorked: t.record?.minutesWorked ?? null,
+          canCheckIn: t.canCheckIn,
+          canCheckOut: t.canCheckOut,
+        };
+      }
+
+      case 'get_my_team': {
+        const me = await this.prisma.employee.findUniqueOrThrow({
+          where: { id: this.selfId(user) },
+          select: { departmentId: true, department: { select: { name: true } } },
+        });
+        const today = dateOnly(new Date());
+        const team = await this.prisma.employee.findMany({
+          where: { departmentId: me.departmentId, employmentStatus: 'ACTIVE' },
+          select: {
+            id: true, firstName: true, lastName: true, designation: true,
+            attendance: { where: { date: today }, select: { status: true } },
+          },
+          orderBy: { firstName: 'asc' },
+        });
+        return {
+          department: me.department.name,
+          size: team.length,
+          members: team.map((m) => ({
+            name: `${m.firstName} ${m.lastName}`,
+            jobTitle: m.designation,
+            isYou: m.id === user.employeeId,
+            onLeaveToday: m.attendance[0]?.status === 'ON_LEAVE',
+          })),
+        };
+      }
+
+      // ── Shared policy ───────────────────────────────────────────────
+      case 'get_leave_policy': {
+        const types = await this.prisma.leaveType.findMany({ orderBy: { id: 'asc' } });
+        return types.map((t) => ({
+          name: t.name,
+          daysPerYear: t.annualQuota > 0 ? t.annualQuota : null,
+          paid: t.isPaid,
+          note:
+            t.annualQuota > 0
+              ? 'Counted against an annual balance'
+              : 'No quota — each approved day is deducted from pay',
+        }));
+      }
+
+      case 'get_work_policy': {
+        const p = this.attendance.policy;
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        return {
+          standardHoursPerDay: p.standardWorkHours,
+          workDayStart: p.workDayStart,
+          lateAfter: `${p.workDayStart} plus ${p.lateThresholdMinutes} minutes grace`,
+          lateThresholdMinutes: p.lateThresholdMinutes,
+          overtimeRateMultiplier: p.overtimeRateMultiplier,
+          weekend: p.weekendDays.map((d) => dayNames[d]),
+          halfDayUnderHours: p.standardWorkHours / 2,
+        };
+      }
+
+      case 'get_holidays': {
+        const year = Number(args.year ?? new Date().getFullYear());
+        const holidays = await this.attendance.holidays(year);
+        const today = dateOnly(new Date());
+        return holidays.map((h) => ({
+          date: this.day(h.date),
+          name: h.name,
+          upcoming: h.date >= today,
+          dayOfWeek: new Intl.DateTimeFormat('en-GB', {
+            weekday: 'long', timeZone: 'UTC',
+          }).format(h.date),
+        }));
+      }
+
+      case 'get_who_is_off': {
+        const from = args.from ? dateOnly(String(args.from)) : dateOnly(new Date());
+        const to = args.to
+          ? dateOnly(String(args.to))
+          : new Date(from.getTime() + 14 * 86_400_000);
+
+        const leave = await this.prisma.leaveRequest.findMany({
+          where: {
+            status: 'APPROVED',
+            startDate: { lte: to },
+            endDate: { gte: from },
+          },
+          select: {
+            startDate: true, endDate: true, days: true,
+            leaveType: { select: { name: true } },
+            employee: {
+              select: {
+                firstName: true, lastName: true,
+                department: { select: { name: true } },
+              },
+            },
+          },
+          orderBy: { startDate: 'asc' },
+        });
+
+        return {
+          from: this.day(from),
+          to: this.day(to),
+          count: leave.length,
+          // Reasons are deliberately omitted — who is off is planning
+          // information; why is between them and their approver.
+          people: leave.map((l) => ({
+            name: `${l.employee.firstName} ${l.employee.lastName}`,
+            department: l.employee.department.name,
+            type: l.leaveType.name,
+            from: this.day(l.startDate),
+            to: this.day(l.endDate),
+            days: Number(l.days),
+          })),
+        };
+      }
+
       case 'get_my_leave_balance':
         return this.leave.balanceFor(this.selfId(user));
 
@@ -239,6 +400,70 @@ export class ToolExecutorService {
             paid,
             remaining: Number(d.principalAmount) - paid,
             monthlyInstallment: Number(d.monthlyInstallment),
+          };
+        });
+      }
+
+      case 'get_organisation_stats': {
+        const today = dateOnly(new Date());
+        const [byDept, total, todayRows] = await Promise.all([
+          this.prisma.employee.groupBy({
+            by: ['departmentId'],
+            where: { employmentStatus: 'ACTIVE' },
+            _count: true,
+          }),
+          this.prisma.employee.count({ where: { employmentStatus: 'ACTIVE' } }),
+          this.prisma.attendance.groupBy({
+            by: ['status'],
+            where: { date: today },
+            _count: true,
+          }),
+        ]);
+        const departments = await this.prisma.department.findMany({
+          select: { id: true, name: true },
+        });
+        const nameById = new Map(departments.map((d) => [d.id, d.name]));
+
+        const counts = Object.fromEntries(
+          todayRows.map((r) => [r.status, r._count]),
+        ) as Record<string, number>;
+        const marked = Object.values(counts).reduce((a, b) => a + b, 0);
+
+        return {
+          activeEmployees: total,
+          byDepartment: byDept.map((d) => ({
+            department: nameById.get(d.departmentId) ?? 'Unknown',
+            headcount: d._count,
+          })),
+          today: {
+            ...counts,
+            // Distinct from absent: nobody has said anything about these yet.
+            notMarked: total - marked,
+          },
+        };
+      }
+
+      case 'get_payroll_summary': {
+        const limit = Math.min(Number(args.limit ?? 3), 12);
+        const runs = await this.prisma.payrollRun.findMany({
+          orderBy: [{ year: 'desc' }, { month: 'desc' }],
+          take: limit,
+          include: { payslips: true },
+        });
+        return runs.map((r) => {
+          const sum = (pick: (p: (typeof r.payslips)[number]) => unknown) =>
+            r.payslips.reduce((acc, p) => acc + Number(pick(p)), 0);
+          return {
+            period: `${r.year}-${String(r.month).padStart(2, '0')}`,
+            status: r.status,
+            payslips: r.payslips.length,
+            totalNetPay: sum((p) => p.netSalary),
+            totalOvertime: sum((p) => p.overtimeAmount),
+            totalDeductions:
+              sum((p) => p.otherDeductions) +
+              sum((p) => p.unpaidLeaveDeduction) +
+              sum((p) => p.duesDeduction),
+            processedAt: r.processedAt ? this.day(r.processedAt) : null,
           };
         });
       }

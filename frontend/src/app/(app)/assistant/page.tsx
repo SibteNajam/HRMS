@@ -25,15 +25,15 @@ import { Markdown } from './Markdown';
 const SUGGESTIONS = {
   EMPLOYEE: [
     'How many leave days do I have left?',
-    'Show my attendance this month',
-    'Do I have any outstanding dues?',
-    'Why was my last payslip different?',
+    'When am I marked late?',
+    'When is the next holiday?',
+    'Who in my team is off next week?',
   ],
   HR: [
     'Who has attendance below 90% this month?',
     'How many leave requests are waiting for me?',
-    'Which employees have outstanding dues?',
-    'Summarise this month’s attendance problems',
+    'Who is on leave next week?',
+    'How many employees do we have in each department?',
   ],
 };
 

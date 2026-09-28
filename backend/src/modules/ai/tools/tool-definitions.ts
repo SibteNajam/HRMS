@@ -34,6 +34,23 @@ const fn = (
 
 export const SELF_TOOLS: Tool[] = [
   fn(
+    'get_my_profile',
+    'The profile of the person asking: employee code, job title, department, ' +
+      'joining date, length of service and employment status. Use for ' +
+      '"what is my job title", "when did I join", "which department am I in".',
+  ),
+  fn(
+    'get_my_today_status',
+    'Whether the person asking has checked in today, at what time, how long ' +
+      'they have been working, and whether today is a weekend or holiday. ' +
+      'Use for "am I checked in", "when did I arrive today".',
+  ),
+  fn(
+    'get_my_team',
+    'Colleagues in the same department as the person asking: name, job title ' +
+      'and whether they are on leave today. Returns no salary or personal data.',
+  ),
+  fn(
     'get_my_leave_balance',
     'Leave balance of the person asking, broken down by leave type, for the ' +
       'current year: allocated, used and remaining days. Use for any question ' +
@@ -70,6 +87,43 @@ export const SELF_TOOLS: Tool[] = [
     'Payslips issued to the person asking, with every component: basic, ' +
       'allowances, overtime, deductions, dues recovered, bonus and net salary.',
     { limit: { type: 'integer', description: 'How many recent payslips. Default 3' } },
+  ),
+];
+
+// ── Shared: company policy and the calendar ───────────────────────────
+// Everyone may read these. They describe how the company works rather than
+// what any individual earns or did, so there is nothing to scope.
+
+export const SHARED_TOOLS: Tool[] = [
+  fn(
+    'get_leave_policy',
+    'The company leave types with their annual quota and whether each is paid ' +
+      'or unpaid. This is company policy, not one person\'s balance. Use for ' +
+      '"what leave types are there", "how many sick days do we get".',
+  ),
+  fn(
+    'get_work_policy',
+    'Working-hours policy: standard hours per day, start time, the grace ' +
+      'period before an arrival counts as late, the overtime rate multiplier ' +
+      'and which days are the weekend. Use for "what time should I start", ' +
+      '"when am I marked late", "how is overtime calculated".',
+  ),
+  fn(
+    'get_holidays',
+    'Company holidays. Returns the date and name of each, and marks which are ' +
+      'still upcoming. Use for "when is the next holiday", "what holidays are ' +
+      'left this year".',
+    { year: { type: 'integer', description: 'Defaults to the current year' } },
+  ),
+  fn(
+    'get_who_is_off',
+    'Who has approved leave during a date range, with the leave type and ' +
+      'dates. Covers the whole range in one call. Use for "who is off next ' +
+      'week", "is anyone on leave in December". Reasons are never returned.',
+    {
+      from: { type: 'string', description: 'YYYY-MM-DD. Defaults to today' },
+      to: { type: 'string', description: 'YYYY-MM-DD. Defaults to 14 days ahead' },
+    },
   ),
 ];
 
@@ -116,6 +170,19 @@ export const HR_TOOLS: Tool[] = [
     'Every active loan or advance across the organisation with remaining ' +
       'balances.',
   ),
+  fn(
+    'get_organisation_stats',
+    'Headcount and shape of the organisation: total active employees, a ' +
+      'breakdown by department, and how many are present, absent or on leave ' +
+      'today. Use for "how many employees do we have", "how big is Sales".',
+  ),
+  fn(
+    'get_payroll_summary',
+    'Payroll runs with their month, status and totals: number of payslips, ' +
+      'total net pay, total overtime and total deductions. Use for "what did ' +
+      'payroll cost last month", "has September payroll been finalised".',
+    { limit: { type: 'integer', description: 'How many recent runs. Default 3' } },
+  ),
 ];
 
 /**
@@ -124,8 +191,10 @@ export const HR_TOOLS: Tool[] = [
  * this is a capability boundary, not a filter applied to the answer.
  */
 export function toolsForRole(role: Role): Tool[] {
-  return role === Role.EMPLOYEE ? SELF_TOOLS : [...SELF_TOOLS, ...HR_TOOLS];
+  const base = [...SELF_TOOLS, ...SHARED_TOOLS];
+  return role === Role.EMPLOYEE ? base : [...base, ...HR_TOOLS];
 }
 
 export const SELF_TOOL_NAMES = new Set(SELF_TOOLS.map((t) => t.function.name));
+export const SHARED_TOOL_NAMES = new Set(SHARED_TOOLS.map((t) => t.function.name));
 export const HR_TOOL_NAMES = new Set(HR_TOOLS.map((t) => t.function.name));

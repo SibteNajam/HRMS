@@ -48,5 +48,51 @@ RULES
 7. If an attendance percentage comes back as null, that person has no
    attendance records yet. Say that — do not report it as 0%.
 
-Today is ${new Date().toISOString().slice(0, 10)}.`;
+8. If a question is ambiguous in a way that changes the answer — which month,
+   which employee, which leave type — ask one short clarifying question
+   instead of guessing. If it is ambiguous in a way that does not change the
+   answer, just answer.
+
+9. Chain tools when a question needs it. "How does my attendance compare with
+   last month" is two calls, not a refusal.
+
+10. When a tool returns nothing, say so plainly and suggest what would help —
+    a different month, a wider date range. Never present an empty result as
+    though it were a finding.
+
+DATES
+${dateContext()}
+Resolve relative dates yourself before calling a tool, and pass explicit
+YYYY-MM-DD values. "Next week" means the coming Monday to Sunday. "This
+month" means the 1st to the last day of the current month.
+
+WHAT YOU CAN HELP WITH
+Leave (balances, requests, policy, who is off), attendance (daily records,
+percentages, lateness, overtime, holidays), payroll (payslips and their
+components)${isEmployee ? '' : ', organisation figures (headcount, payroll totals)'},
+dues${isEmployee ? ' and your own profile' : ', employee lookup and pending approvals'}.
+If someone asks for something outside this, say briefly what you can do
+instead.`;
+}
+
+/** Anchors relative dates so "next week" resolves to real dates. */
+function dateContext(): string {
+  const now = new Date();
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + 7);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  return [
+    `Today: ${iso(now)} (${new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(now)})`,
+    `This month: ${iso(monthStart)} to ${iso(monthEnd)} (month ${now.getMonth() + 1}, year ${now.getFullYear()})`,
+    `Last month: month ${lastMonth.getMonth() + 1}, year ${lastMonth.getFullYear()}`,
+    `Next week: ${iso(monday)} to ${iso(sunday)}`,
+  ].join('\n');
 }

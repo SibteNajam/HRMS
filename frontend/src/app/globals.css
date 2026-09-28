@@ -374,8 +374,8 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Print
    "Save as PDF" lives in every print dialog, so a payslip needs no PDF
-   library — only a stylesheet that removes everything except the payslip
-   and turns the dark theme off, since almost nobody wants a black page.
+   library — only a stylesheet that prints the one payslip the user asked
+   for, on white, without the application around it.
    ═══════════════════════════════════════════════════════════════════════ */
 @media print {
   /* Force light. A dark-mode payslip prints as a solid black rectangle. */
@@ -383,43 +383,69 @@
   :root.dark {
     --surface-page:    #FFFFFF;
     --surface-raised:  #FFFFFF;
-    --surface-sunken:  #FFFFFF;
+    --surface-sunken:  #F6F7F9;
     --surface-overlay: #FFFFFF;
-    --text-primary:    #000000;
-    --text-secondary:  #333333;
-    --text-tertiary:   #555555;
-    --border-subtle:   #CCCCCC;
+    --text-primary:    #111111;
+    --text-secondary:  #3A3A3A;
+    --text-tertiary:   #666666;
+    --border-subtle:   #DDDDDD;
     --border-default:  #999999;
+    --surface-selected:#F0F4FF;
     color-scheme: light;
   }
 
   aside,
-  header,
+  header.sticky,
   nav,
   [role='dialog'],
+  [data-sonner-toaster],
   .print\:hidden {
     display: none !important;
   }
 
-  body {
+  html, body {
     background: #FFFFFF !important;
-    font-size: 12pt;
+    font-size: 11pt;
   }
 
-  main {
+  main,
+  main > div {
+    overflow: visible !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  /* Print only the payslip whose Download was clicked. The button marks
+     that one element, so everything else is hidden rather than producing
+     blank pages between them. */
+  body[data-printing] [data-payslip-card]:not([data-print-target]) {
+    display: none !important;
+  }
+
+  /* A collapsed payslip must still print in full when it is the one asked
+     for — the accordion's zero-height row would otherwise clip it. */
+  body[data-printing] [data-print-target] .grid {
+    grid-template-rows: 1fr !important;
+  }
+  body[data-printing] [data-print-target] .overflow-hidden {
     overflow: visible !important;
   }
 
-  /* Collapsed payslips must not print as blank pages. */
-  [data-printing] .grid-rows-\[0fr\] {
-    display: none !important;
+  [data-payslip] {
+    max-width: none !important;
+    page-break-inside: avoid;
   }
 
   * {
     box-shadow: none !important;
   }
 
+  [data-payslip-card] {
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
   @page {
-    margin: 18mm;
+    margin: 14mm;
   }
 }

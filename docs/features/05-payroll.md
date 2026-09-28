@@ -395,3 +395,57 @@ topbar and buttons so the page is only the payslip. And it **forces light
 colours even in dark mode** — a dark-mode payslip prints as a solid black
 rectangle, which is the kind of detail nobody notices until someone hands a
 landlord a black page.
+
+
+## The payslip as a document
+
+A payslip is shown to a landlord, a bank or a visa officer. It has to read as
+a document issued by a company, not as a screen from an internal tool.
+
+### Anatomy
+
+| Band | Carries |
+|---|---|
+| **Letterhead** | Logo, company name, address, contact, "PAYSLIP", period, reference number |
+| **Identity** | Name, employee code, designation, department, joining date |
+| **Period** | Dates covered, payment date, working days, days paid, currency |
+| **Figures** | Earnings and deductions in two columns, each with its own subtotal |
+| **Net pay** | The figure, and the same amount in words |
+| **Footer** | Computer-generated notice, and where to send a query |
+
+Each payslip carries a reference — `PS-202609-0018` — so an employee and HR
+can talk about the same document without ambiguity.
+
+### The amount in words
+
+`Rupees One Lakh Fifty-Three Thousand Seven Hundred Two and Thirty-Three
+Paisa Only`
+
+Standard on a payslip in this region, and it exists for a reason: a figure
+written out is hard to alter after the fact. `numberToWords.ts` uses South
+Asian numbering — lakh and crore — because that is how the reader counts.
+
+### Printing
+
+Browser print, not a PDF library. "Save as PDF" is in every print dialog, the
+output is selectable text rather than an image, and it costs no dependency.
+
+Three things the stylesheet has to get right:
+
+**Only the payslip that was asked for.** The button marks its own element and
+the stylesheet hides the rest — matching on ids would mean the CSS has to
+know how many payslips exist.
+
+**A collapsed payslip still prints in full.** The accordion's zero-height row
+would otherwise clip it, so the print rules force the grid open for the
+target.
+
+**Light colours, always.** A dark-mode payslip prints as a solid black
+rectangle. Nobody notices until someone hands it to a landlord.
+
+### Company details
+
+Read from `NEXT_PUBLIC_COMPANY_*` so a deployment sets its own without a code
+change. In the multi-tenant version described in
+[UI Customization](../17-ui-customization.md) these come from the
+organisation settings table instead.

@@ -66,6 +66,17 @@ export interface RunDetail extends PayrollRun {
 export interface MyPayslip extends PayslipFigures {
   id: number;
   payrollRun: { month: number; year: number; processedAt: string | null };
+  employee: {
+    employeeCode: string; firstName: string; lastName: string; email: string;
+    designation: string; joiningDate: string; baseSalary: number;
+    department: { name: string };
+  };
+  period: {
+    periodStart: string;
+    periodEnd: string;
+    workingDays: number;
+    paidDays: number;
+  };
 }
 
 export interface SalaryRow {

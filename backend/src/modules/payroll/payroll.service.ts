@@ -359,14 +359,49 @@ export class PayrollService {
 
   // ── Payslips ────────────────────────────────────────────────────────
 
+  /**
+   * A payslip is a document someone shows a bank or a landlord, so it needs
+   * everything that identifies it — not just the figures.
+   */
   async myPayslips(employeeId: number) {
     const slips = await this.prisma.payslip.findMany({
       where: { employeeId, payrollRun: { status: 'FINALISED' } },
-      include: { payrollRun: { select: { month: true, year: true, processedAt: true } } },
+      include: {
+        payrollRun: { select: { month: true, year: true, processedAt: true } },
+        employee: {
+          select: {
+            employeeCode: true, firstName: true, lastName: true, email: true,
+            designation: true, joiningDate: true, baseSalary: true,
+            department: { select: { name: true } },
+          },
+        },
+      },
       orderBy: [{ payrollRun: { year: 'desc' } }, { payrollRun: { month: 'desc' } }],
       take: 24,
     });
-    return slips.map((p) => ({ ...p, ...this.numeric(p) }));
+
+    // Working days per period, so the payslip can state what was paid for.
+    const periods = await Promise.all(
+      slips.map(async (p) => {
+        const from = new Date(Date.UTC(p.payrollRun.year, p.payrollRun.month - 1, 1));
+        const to = new Date(Date.UTC(p.payrollRun.year, p.payrollRun.month, 0));
+        const workingDays = await this.attendance.workingDaysBetween(from, to);
+        const payable = this.payableDays(p.employee.joiningDate, from, to, workingDays);
+        return {
+          periodStart: from.toISOString().slice(0, 10),
+          periodEnd: to.toISOString().slice(0, 10),
+          workingDays,
+          paidDays: payable ?? workingDays,
+        };
+      }),
+    );
+
+    return slips.map((p, i) => ({
+      ...p,
+      ...this.numeric(p),
+      employee: { ...p.employee, baseSalary: Number(p.employee.baseSalary) },
+      period: periods[i],
+    }));
   }
 
   async getPayslip(user: JwtUser, id: number) {

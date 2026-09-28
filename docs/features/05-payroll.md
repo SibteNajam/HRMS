@@ -323,3 +323,33 @@ problem. Base salary always renders its figure.
 
 The Salary Structure screen highlights the same people, so the problem is
 visible before a payroll run is ever started rather than only after.
+
+
+## Pro-rated payslips must explain themselves
+
+An employee who joins on the 27th is paid for the working days they were
+employed, not the whole month:
+
+```
+joined 27 Sep       4 of 30 calendar days
+                 →  3 of 22 working days
+75,000 × 3/22    =  10,227.27 base
+10,000 × 3/22    =   1,363.64 allowances
+                 =  11,590.91 net
+```
+
+That is correct, and it looks exactly like a bug. A base salary of 10,227.27
+for someone earning 75,000 is alarming unless the reason is on the screen.
+
+So the run response carries a `proRata` block whenever the joining date falls
+inside the month, and the row says it in words:
+
+> Joined 27 Sep 2026 — paid **3 of 22** working days, so base is pro-rated
+> from PKR 75,000.00
+
+with a summary line above the table so it is visible without reading every
+row.
+
+**The calculation is unchanged.** What changed is that the screen now answers
+the question the number provokes. A figure that is right but unexplained costs
+the same trust as one that is wrong.

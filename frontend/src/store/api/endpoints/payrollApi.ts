@@ -28,8 +28,15 @@ export interface RunPayslip extends PayslipFigures {
   employeeId: number;
   employee: {
     id: number; employeeCode: string; firstName: string; lastName: string;
-    designation: string; department: { name: string };
+    designation: string; joiningDate: string; department: { name: string };
   };
+  /** Present only when the employee joined partway through the month. */
+  proRata: {
+    joined: string;
+    payableDays: number;
+    workingDaysInMonth: number;
+    fullBaseSalary: number;
+  } | null;
   flags: PayrollFlag[];
 }
 

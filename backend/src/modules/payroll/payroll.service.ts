@@ -131,7 +131,8 @@ export class PayrollService {
             employee: {
               select: {
                 id: true, employeeCode: true, firstName: true, lastName: true,
-                designation: true, department: { select: { name: true } },
+                designation: true, joiningDate: true, baseSalary: true,
+                department: { select: { name: true } },
               },
             },
           },
@@ -144,11 +145,34 @@ export class PayrollService {
     // Last month's net, to flag anything that moved sharply.
     const previous = await this.previousNetByEmployee(run.month, run.year);
 
+    const monthStart = new Date(Date.UTC(run.year, run.month - 1, 1));
+    const monthEnd = new Date(Date.UTC(run.year, run.month, 0));
+    const workingDaysInMonth = await this.attendance.workingDaysBetween(monthStart, monthEnd);
+
     const payslips = run.payslips.map((p) => {
       const figures = this.numeric(p);
+      const joined = p.employee.joiningDate;
+
+      // A payslip smaller than the employee's salary is not an error — it is
+      // someone who joined partway through the month. Say so explicitly,
+      // because an unexplained small figure on a payslip looks like a bug.
+      const payableDays =
+        joined > monthStart && joined <= monthEnd
+          ? this.payableDays(joined, monthStart, monthEnd, workingDaysInMonth)
+          : undefined;
+
       return {
         ...p,
         ...figures,
+        proRata:
+          payableDays !== undefined && payableDays < workingDaysInMonth
+            ? {
+                joined: joined.toISOString().slice(0, 10),
+                payableDays,
+                workingDaysInMonth,
+                fullBaseSalary: Number(p.employee.baseSalary),
+              }
+            : null,
         flags: flagPayslip(figures, previous.get(p.employeeId) ?? null),
       };
     });

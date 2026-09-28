@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  CircleAlert, CircleCheck, Lock, PenLine, ShieldCheck, Trash2, TriangleAlert,
+  CircleAlert, CircleCheck, Info, Lock, PenLine, ShieldCheck, Trash2, TriangleAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatDate } from '@/lib/format';
 import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useAppSelector } from '@/store/hooks';
 import {
@@ -150,6 +150,20 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
         </div>
       )}
 
+      {run.payslips.some((p) => p.proRata) && (
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-line-subtle bg-surface-sunken p-4">
+          <Info size={17} strokeWidth={2} className="mt-0.5 shrink-0 text-info" aria-hidden />
+          <p className="text-body-sm text-content-secondary">
+            <span className="font-medium text-content-primary">
+              {run.payslips.filter((p) => p.proRata).length} payslip
+              {run.payslips.filter((p) => p.proRata).length === 1 ? ' is' : 's are'} pro-rated.
+            </span>{' '}
+            These people joined partway through the month, so they are paid for
+            the working days they were employed rather than the full month.
+          </p>
+        </div>
+      )}
+
       {/* Anomalies above the table — HR must see these before scrolling. */}
       {run.flaggedCount > 0 && (
         <div className="mb-5 rounded-xl border border-[color-mix(in_srgb,var(--warning)_30%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] p-4">
@@ -227,6 +241,18 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                           />
                         )}
                       </div>
+                      {/* An unexplained small figure on a payslip looks like
+                          a bug. Name the reason on the row. */}
+                      {p.proRata && (
+                        <p className="mt-1 pl-[42px] text-caption text-content-tertiary">
+                          Joined {formatDate(p.proRata.joined)} — paid{' '}
+                          <span className="tabular font-medium text-content-secondary">
+                            {p.proRata.payableDays} of {p.proRata.workingDaysInMonth}
+                          </span>{' '}
+                          working days, so base is pro-rated from{' '}
+                          <span className="tabular">{formatCurrency(p.proRata.fullBaseSalary)}</span>
+                        </p>
+                      )}
                     </td>
                     <Money v={p.baseSalary} alwaysShow />
                     <Money v={p.allowances} />

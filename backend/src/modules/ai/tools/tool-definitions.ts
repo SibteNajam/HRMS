@@ -35,38 +35,28 @@ const fn = (
 export const SELF_TOOLS: Tool[] = [
   fn(
     'get_my_profile',
-    'The profile of the person asking: employee code, job title, department, ' +
-      'joining date, length of service and employment status. Use for ' +
-      '"what is my job title", "when did I join", "which department am I in".',
+    'Their profile: code, job title, department, joining date, length of service.',
   ),
   fn(
     'get_my_today_status',
-    'Whether the person asking has checked in today, at what time, how long ' +
-      'they have been working, and whether today is a weekend or holiday. ' +
-      'Use for "am I checked in", "when did I arrive today".',
+    'Whether they have checked in today, at what time, and if today is a weekend or holiday.',
   ),
   fn(
     'get_my_team',
-    'Colleagues in the same department as the person asking: name, job title ' +
-      'and whether they are on leave today. Returns no salary or personal data.',
+    'Colleagues in their department: name, job title, and whether off today.',
   ),
   fn(
     'get_my_leave_balance',
-    'Leave balance of the person asking, broken down by leave type, for the ' +
-      'current year: allocated, used and remaining days. Use for any question ' +
-      'about how much leave they have left.',
+    'Their leave balance by type for this year: allocated, used, remaining.',
   ),
   fn(
     'get_my_leave_requests',
-    'The leave requests the person asking has submitted, with status ' +
-      '(pending, approved, rejected) and the reviewer note if rejected.',
+    'Their own leave requests, with status and any rejection note.',
     { status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] } },
   ),
   fn(
     'get_my_attendance',
-    'Attendance for the person asking over a month: each day with status, ' +
-      'check-in and check-out, plus totals for attendance percentage, late ' +
-      'arrivals, absences and overtime.',
+    'Their attendance for one month:each day plus totals (percentage, late, absent, overtime).',
     {
       year: { type: 'integer', description: 'Defaults to the current year' },
       month: { type: 'integer', description: '1-12. Defaults to the current month' },
@@ -74,18 +64,15 @@ export const SELF_TOOLS: Tool[] = [
   ),
   fn(
     'get_my_attendance_summary',
-    'Rolling 90-day attendance summary for the person asking: percentage, ' +
-      'present days, late count, absences and overtime minutes.',
+    'Their rolling 90-day attendance totals: percentage, present, late, absent, overtime.',
   ),
   fn(
     'get_my_dues',
-    'Loans, advances and other amounts the person asking owes the company, ' +
-      'with principal, amount paid, remaining balance and monthly installment.',
+    'What they owe the company: principal, paid, remaining, monthly installment.',
   ),
   fn(
     'get_my_payslips',
-    'Payslips issued to the person asking, with every component: basic, ' +
-      'allowances, overtime, deductions, dues recovered, bonus and net salary.',
+    'Their payslips with every component: basic, allowances, overtime, deductions, net.',
     { limit: { type: 'integer', description: 'How many recent payslips. Default 3' } },
   ),
 ];

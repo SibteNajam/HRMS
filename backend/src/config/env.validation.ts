@@ -41,7 +41,7 @@ export const envSchema = z.object({
   AI_MODEL: z.string().default('openai/gpt-oss-120b'),
   AI_MAX_TOKENS: z.coerce.number().default(1024),
   /** Turns sent per question before we stop. Guards a looping model. */
-  AI_MAX_TURNS: z.coerce.number().default(5),
+  AI_MAX_TURNS: z.coerce.number().default(8),
   /** Conversation messages resent per turn. History is the main cost driver. */
   AI_HISTORY_WINDOW: z.coerce.number().default(10),
 

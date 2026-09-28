@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { JwtUser } from '../../common/types/jwt-user.js';
-import { buildSystemPrompt } from './prompts/system-prompt.js';
+import { buildSystemPrompt, type ProfileSnapshot } from './prompts/system-prompt.js';
 import { toolsForRole } from './tools/tool-definitions.js';
 import { ToolExecutorService } from './tools/tool-executor.service.js';
 
@@ -114,8 +114,12 @@ export class AiService {
         content: m.content,
       }));
 
+    // Identity is loaded server-side and handed to the model, so it never
+    // has to ask who it is talking to.
+    const profile = await this.profileSnapshot(user);
+
     const messages: Message[] = [
-      { role: 'system', content: buildSystemPrompt(user) },
+      { role: 'system', content: buildSystemPrompt(user, profile) },
       ...history,
       { role: 'user', content: message },
     ];
@@ -126,19 +130,23 @@ export class AiService {
 
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
+        // On the last turn, take tools away. By then we have the data the
+        // model asked for, so the right move is to make it write the answer
+        // — not to throw away a completed round-trip and show an error.
+        const lastTurn = turn === maxTurns - 1;
+
         const response = await this.client.chat.completions.create({
           model: this.config.getOrThrow<string>('AI_MODEL'),
           max_tokens: this.config.getOrThrow<number>('AI_MAX_TOKENS'),
           messages,
-          tools,
-          tool_choice: 'auto',
+          ...(lastTurn ? {} : { tools, tool_choice: 'auto' as const }),
         });
 
         const choice = response.choices[0];
         const assistantMessage = choice.message;
         const calls = assistantMessage.tool_calls ?? [];
 
-        if (calls.length === 0) {
+        if (calls.length === 0 || lastTurn) {
           const reply = assistantMessage.content?.trim() ?? '';
           if (!reply) {
             throw new BadRequestException('The assistant returned nothing. Try rephrasing.');
@@ -172,9 +180,8 @@ export class AiService {
         }
       }
 
-      throw new BadRequestException(
-        'The assistant could not finish that. Try asking something narrower.',
-      );
+      // Unreachable: the final turn always returns above.
+      throw new BadRequestException('The assistant could not finish that.');
     } catch (err) {
       if (err instanceof BadRequestException || err instanceof ForbiddenException) throw err;
       return this.handleProviderError(err);
@@ -187,6 +194,45 @@ export class AiService {
   }
 
   // ── Internals ───────────────────────────────────────────────────────
+
+  /**
+   * Stable facts only. A balance or a percentage in the prompt would be
+   * quoted back later in the conversation instead of re-read, and would
+   * quietly go stale the moment anything changed.
+   */
+  private async profileSnapshot(user: JwtUser): Promise<ProfileSnapshot | null> {
+    if (!user.employeeId) return null;
+
+    const e = await this.prisma.employee.findUnique({
+      where: { id: user.employeeId },
+      select: {
+        employeeCode: true, designation: true, joiningDate: true,
+        employmentStatus: true,
+        department: { select: { name: true } },
+      },
+    });
+    if (!e) return null;
+
+    const months = Math.floor(
+      (Date.now() - e.joiningDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44),
+    );
+    const years = Math.floor(months / 12);
+    const rest = months % 12;
+
+    return {
+      employeeCode: e.employeeCode,
+      jobTitle: e.designation,
+      department: e.department.name,
+      joined: new Intl.DateTimeFormat('en-GB', {
+        day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+      }).format(e.joiningDate),
+      service:
+        years > 0
+          ? `${years} year${years === 1 ? '' : 's'}${rest ? ` ${rest} month${rest === 1 ? '' : 's'}` : ''}`
+          : `${months} month${months === 1 ? '' : 's'}`,
+      employmentStatus: e.employmentStatus,
+    };
+  }
 
   private async persist(
     conversationId: number,
@@ -218,8 +264,18 @@ export class AiService {
         throw new ServiceUnavailableException('The assistant key is invalid.');
       }
       if (err.status === 429) {
+        // Groq's free tier caps tokens per minute, and the headers say
+        // exactly how long. "In a moment" makes the user retry immediately
+        // and fail again.
+        const wait =
+          (err.headers as Record<string, string> | undefined)?.[
+            'x-ratelimit-reset-tokens'
+          ] ??
+          (err.headers as Record<string, string> | undefined)?.['retry-after'];
         throw new ServiceUnavailableException(
-          'The assistant is rate limited right now. Try again in a moment.',
+          wait
+            ? `The assistant has hit its rate limit. Try again in ${wait}.`
+            : 'The assistant has hit its rate limit. Try again shortly.',
         );
       }
       throw new ServiceUnavailableException('The assistant is unavailable.');

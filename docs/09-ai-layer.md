@@ -485,3 +485,77 @@ running. It proves the architecture.
 | Recruitment | Reads CVs, scores against the JD | Shortlist, reject or hire |
 
 The right-hand column is the project's thesis. Keep it intact.
+
+
+## Answer first, then offer
+
+An early version told the model to ask a clarifying question whenever a
+request was ambiguous. It then met *"tell me about me"* with *"Could you let
+me know which details you'd like?"* — asking the user to identify themselves
+to a system that already knows exactly who they are.
+
+Two changes fixed it.
+
+### Identity is preloaded, not asked for
+
+The system prompt carries the asker's identity, loaded server-side from their
+session before the first token is generated:
+
+```
+Name: Ahmed Raza
+Employee code: EMP-0002
+Job title: Senior Developer
+Department: Engineering
+Joined: 1 Apr 2024 (2 years 5 months of service)
+```
+
+followed by an explicit instruction: *never ask them to identify themselves,
+and never ask which employee they mean when they say "me" or "my".*
+
+**Only stable facts go in.** Balances and percentages are deliberately
+excluded — a figure sitting in the prompt gets quoted back later in the
+conversation instead of re-read, and goes stale the moment anything changes.
+Those always come from a tool.
+
+### The rule became answer-first
+
+> Answer first, then offer. Never open with a question when you could give
+> something useful. A broad question like "tell me about me" or "how am I
+> doing" is **not** ambiguous — it is an invitation to summarise.
+
+Ask only when genuinely unable to proceed: another employee with no name
+given, or a month that cannot be inferred.
+
+*"Tell me about me"* now calls five tools and returns profile, leave balance,
+90-day attendance, dues and payslips, closing with one line offering more.
+
+## The turn loop must not throw away its work
+
+The loop was capped at five turns and threw when it hit the cap. A summary
+legitimately needs five tool calls, so the cap was reached **with all the data
+already gathered** — and the user got an error instead of an answer.
+
+On the final turn, tools are withheld and the model is asked to write from
+what it has:
+
+```ts
+const lastTurn = turn === maxTurns - 1;
+const response = await this.client.chat.completions.create({
+  messages,
+  ...(lastTurn ? {} : { tools, tool_choice: 'auto' }),
+});
+```
+
+The budget also rose from 5 to 8. Discarding a completed round-trip because a
+counter ran out is never the right failure.
+
+## Rate limits are the real constraint
+
+Groq's free tier allows 1,000 requests per day but **8,000 tokens per
+minute** — and tokens bind first, because every one of the 21 tool
+definitions is resent on every turn of every question.
+
+Two mitigations: tool descriptions are kept terse, since their cost is
+multiplied by the turn count; and a 429 reports the actual wait from the
+`x-ratelimit-reset-tokens` header rather than a vague "try again shortly",
+which just invites an immediate retry that fails again.

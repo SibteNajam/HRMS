@@ -559,3 +559,80 @@ Two mitigations: tool descriptions are kept terse, since their cost is
 multiplied by the turn count; and a 429 reports the actual wait from the
 `x-ratelimit-reset-tokens` header rather than a vague "try again shortly",
 which just invites an immediate retry that fails again.
+
+
+## Two different things called "memory"
+
+They get confused constantly, and only one of them is a risk.
+
+### 1. Conversation memory — what the model "remembers"
+
+**The model remembers nothing.** It is stateless: every request is the first
+request as far as it is concerned. There is no session on the provider's side
+and nothing accumulates there over time.
+
+What looks like memory is us re-sending the conversation:
+
+```
+You: "What is my attendance?"
+  → sent: [system prompt] [your question]
+  ← "93%"
+
+You: "And how many times was I late?"
+  → sent: [system prompt] [Q1] [A1] [your question]   ← the whole thing again
+  ← "0 times"
+```
+
+The history lives in the `ai_messages` table in MySQL, and the last
+`AI_HISTORY_WINDOW` (10) messages are replayed on each turn. That is the
+entire mechanism.
+
+**The cost implication:** history is re-sent every turn, so a 40-message
+conversation costs several times what a 4-message one does for the same
+answer. The window is the control, and it is why it is set to 10 rather than
+unlimited.
+
+### 2. Process memory — RAM the server holds
+
+This is the one that can actually leak, and it has nothing to do with the AI.
+It leaks when something is created and never released: a timer that is never
+cleared, a listener never removed, a collection at module scope that only
+grows, or a query that loads more rows every month.
+
+## Memory audit
+
+| Risk | Status |
+|---|---|
+| Timers and listeners | Every one is cleaned up on unmount |
+| Module-scope collections | **None.** No `Map`, `Set` or array lives outside a request |
+| Prisma client | One singleton via `PrismaService` |
+| OpenAI client | One, built in the constructor of a singleton service |
+| NestJS provider scope | Default singleton — no `Scope.REQUEST` anywhere |
+| Conversation loading | **Bounded** — see below |
+
+Two things were fixed during the audit.
+
+**A dangling copy timer.** `setTimeout(() => setCopied(false), 1500)` in the
+chat had no cleanup, so clicking Copy and navigating away within 1.5 seconds
+left a timer firing into an unmounted component. Now held in a ref and cleared
+on unmount.
+
+**Unbounded conversation loading.** `chat()` loaded *every* message in a
+conversation and then used the last ten. A 500-turn conversation meant
+loading 1,000 rows to use 10 — on every message sent, growing forever. It now
+loads only the window it is going to send, ordered newest-first so the cap
+keeps the recent messages rather than the oldest.
+
+## What grows, and what bounds it
+
+| Table | Grows with | Bound |
+|---|---|---|
+| `attendance` | employees × days | Queries are always scoped to a date range |
+| `audit_logs` | every mutation | Read only via the corrections screen, `take: 50` |
+| `ai_messages` | chat turns | `getConversation` caps at 100, chat at 10 |
+| `notifications` | events | Read with a limit |
+
+Nothing here is read without a bound, so the amount of data in memory at any
+moment stays flat as the tables grow. The tables themselves grow, which is
+correct — that is a disk question, not a memory one, and for this data volume
+it is not a concern for years.

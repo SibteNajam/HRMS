@@ -242,6 +242,13 @@ function Message({
   tools: string[] | null;
 }) {
   const [copied, setCopied] = useState(false);
+  // Held in a ref so unmounting cancels it. Without this, clicking Copy and
+  // navigating away within 1.5s leaves a timer that fires into a component
+  // that no longer exists.
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+  }, []);
   const isUser = role === 'USER';
 
   if (isUser) {
@@ -282,7 +289,8 @@ function Message({
           onClick={() => {
             navigator.clipboard.writeText(content);
             setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
+            if (resetTimer.current) clearTimeout(resetTimer.current);
+            resetTimer.current = setTimeout(() => setCopied(false), 1500);
           }}
           className="mt-1.5 inline-flex items-center gap-1 text-caption text-content-tertiary transition-colors hover:text-content-primary"
         >

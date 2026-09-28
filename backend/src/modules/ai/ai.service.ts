@@ -68,15 +68,30 @@ export class AiService {
     });
   }
 
-  async getConversation(user: JwtUser, id: number) {
+  /**
+   * @param limit how many of the most recent messages to load.
+   *
+   * Always bounded. A conversation grows without limit, so loading "all
+   * messages" means the query gets slower and heavier every time someone
+   * uses it — and the chat path only ever needs the last few.
+   */
+  async getConversation(user: JwtUser, id: number, limit = 100) {
     const conversation = await this.prisma.aiConversation.findUnique({
       where: { id },
-      include: { messages: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        messages: {
+          // Newest first so the cap keeps the RECENT messages, then
+          // reversed back into reading order.
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+        },
+      },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
     // Ownership, not just role — a conversation contains the person's own data.
     if (conversation.userId !== user.sub) throw new ForbiddenException();
-    return conversation;
+
+    return { ...conversation, messages: conversation.messages.reverse() };
   }
 
   async deleteConversation(user: JwtUser, id: number) {
@@ -96,8 +111,13 @@ export class AiService {
       );
     }
 
+    const window = this.config.getOrThrow<number>('AI_HISTORY_WINDOW');
+
+    // Load only the window we are going to send. Loading every message to
+    // then slice the last ten is work that grows with the conversation and
+    // is thrown away.
     const conversation = conversationId
-      ? await this.getConversation(user, conversationId)
+      ? await this.getConversation(user, conversationId, window)
       : await this.prisma.aiConversation.create({
           data: {
             userId: user.sub,
@@ -106,9 +126,7 @@ export class AiService {
           include: { messages: true },
         });
 
-    const window = this.config.getOrThrow<number>('AI_HISTORY_WINDOW');
     const history: Message[] = conversation.messages
-      .slice(-window)
       .map((m) => ({
         role: m.role === 'USER' ? 'user' : 'assistant',
         content: m.content,

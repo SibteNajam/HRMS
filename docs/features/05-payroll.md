@@ -49,6 +49,47 @@ in April.
 | GET | `/payroll/payslips/:id` | owner, HR | Ownership checked |
 | GET | `/payroll/payslips/:id/pdf` | owner, HR | Download |
 
+## What a "payroll run" is
+
+The word confuses people, so plainly: **a payroll run is processing everyone's
+salary for one month, in one batch.**
+
+| Term | Means |
+|---|---|
+| **Run** | One month's payroll for the whole company |
+| **DRAFT** | Calculated but not issued. A preview HR checks. Nobody is paid, no dues are deducted |
+| **FINALISED** | Signed off. Payslips issued, dues recovered, everyone notified. Irreversible |
+
+It is the same shape as preparing payslips, checking them, then signing them
+off — the draft exists so mistakes are caught before money moves.
+
+## Who does what, and why it is split
+
+| Step | Role | Reversible |
+|---|---|---|
+| Create the draft | HR | Yes — delete and recalculate |
+| Adjust a bonus or deduction | HR | Yes, while DRAFT |
+| **Finalise** | **ADMIN** | **No** |
+| Change a salary | ADMIN | Affects future runs only |
+
+HR prepares, an administrator signs off. The split exists because finalising
+is the step that actually pays people and takes money off them, and it cannot
+be undone — so it gets a second pair of eyes.
+
+## Where each number comes from
+
+Nothing on a payslip is typed in except bonus and other deductions. Everything
+else is derived from a module that already exists, which is why payroll is
+built last.
+
+| Component | Source |
+|---|---|
+| Base salary, allowances | Employee record |
+| Overtime | **Attendance** — minutes beyond the standard day |
+| Unpaid leave | **Leave** — approved days of an unpaid type |
+| Dues recovered | **Dues** — monthly installment, capped |
+| Bonus, other deductions | HR, while the run is DRAFT |
+
 ## The calculation
 
 A pure function. No database, no I/O, no AI. Fully unit-tested.

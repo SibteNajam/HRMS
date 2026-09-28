@@ -10,6 +10,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { LeaveModule } from './modules/leave/leave.module.js';
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
+import { PayrollModule } from './modules/payroll/payroll.module.js';
 import { AiModule } from './modules/ai/ai.module.js';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
@@ -31,6 +32,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
     AdminModule,
     LeaveModule,
     AttendanceModule,
+    PayrollModule,
     AiModule,
   ],
   providers: [

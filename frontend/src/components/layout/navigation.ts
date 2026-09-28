@@ -65,7 +65,6 @@ export const NAV: NavGroup[] = [
       { label: 'Payroll', icon: Wallet, roles: ALL, children: [
         { label: 'My Payslips', path: '/payroll', roles: ALL, icon: FileText },
         { label: 'Payroll Runs', path: '/payroll/runs', roles: HR_UP, icon: Play },
-        { label: 'All Payslips', path: '/payroll/payslips', roles: HR_UP, icon: FileText },
         { label: 'Salary Structure', path: '/payroll/structure', roles: ADMIN, icon: Layers },
       ]},
 

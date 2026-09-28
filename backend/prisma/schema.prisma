@@ -103,6 +103,9 @@ model Employee {
   joiningDate      DateTime         @map("joining_date") @db.Date
   employmentStatus EmploymentStatus @default(ACTIVE) @map("employment_status")
   baseSalary       Decimal          @map("base_salary") @db.Decimal(12, 2)
+  /// Fixed monthly allowance (transport, housing). Copied onto each payslip
+  /// so a later change never alters a payslip already issued.
+  allowances       Decimal          @default(0) @db.Decimal(12, 2)
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 

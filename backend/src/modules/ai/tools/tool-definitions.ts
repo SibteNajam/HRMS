@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import { Role } from '../../../common/enums/role.enum.js';
+import { QUERY_JSON_SCHEMA } from '../semantic/query-schema.js';
 
 /** The function-tool variant specifically — the union also covers custom tools. */
 type Tool = OpenAI.Chat.Completions.ChatCompletionFunctionTool;
@@ -172,16 +173,47 @@ export const HR_TOOLS: Tool[] = [
   ),
 ];
 
+// ── Analytics: the semantic layer ─────────────────────────────────────
+// One tool over the entity registry, replacing a function per question.
+// Every role gets it: what it returns is decided by the registry's own
+// access rules, applied inside the translator from the verified session, so
+// an employee holding this tool still reaches only their own rows.
+
+export const ANALYTICS_TOOLS: Tool[] = [
+  fn(
+    'describe_hr_entity',
+    'List the fields and metrics of one entity from the data catalogue, so ' +
+      'a query can be composed against real field names rather than guessed ' +
+      'ones. Call this before query_hr_data whenever the exact fields are ' +
+      'not already known.',
+    { entity: { type: 'string', description: 'An entity name from the catalogue' } },
+    ['entity'],
+  ),
+  fn(
+    'query_hr_data',
+    'Answer any question about HR data that the named tools do not already ' +
+      'cover: totals, rankings, breakdowns by department or job title, and ' +
+      'filter combinations. Choose an entity from the data catalogue, then ' +
+      'filter, group and aggregate it. Use this for "which department has ' +
+      'the most overtime", "average leave taken per team", "how many ' +
+      'requests were rejected this year". Returns only records the person ' +
+      'asking is entitled to see.',
+    QUERY_JSON_SCHEMA as unknown as Record<string, unknown>,
+    ['entity'],
+  ),
+];
+
 /**
  * An employee's request to the model physically does not contain the
  * organisation-wide tools. The model cannot call a tool it was never given —
  * this is a capability boundary, not a filter applied to the answer.
  */
 export function toolsForRole(role: Role): Tool[] {
-  const base = [...SELF_TOOLS, ...SHARED_TOOLS];
+  const base = [...SELF_TOOLS, ...SHARED_TOOLS, ...ANALYTICS_TOOLS];
   return role === Role.EMPLOYEE ? base : [...base, ...HR_TOOLS];
 }
 
 export const SELF_TOOL_NAMES = new Set(SELF_TOOLS.map((t) => t.function.name));
 export const SHARED_TOOL_NAMES = new Set(SHARED_TOOLS.map((t) => t.function.name));
 export const HR_TOOL_NAMES = new Set(HR_TOOLS.map((t) => t.function.name));
+export const ANALYTICS_TOOL_NAMES = new Set(ANALYTICS_TOOLS.map((t) => t.function.name));

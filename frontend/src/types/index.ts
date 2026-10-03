@@ -165,6 +165,13 @@ export interface DecisionContext {
     departmentSize: number;
     othersOffInRange: number;
     othersOffNames: string[];
+    /** The job title being covered, e.g. "Backend Engineer". */
+    designation: string;
+    /** Active people in this department holding the same job title. */
+    sameRoleSize: number;
+    /** How many of those are already approved off across these dates. */
+    sameRoleOff: number;
+    sameRoleOffNames: string[];
   };
   flags: DecisionFlag[];
 }

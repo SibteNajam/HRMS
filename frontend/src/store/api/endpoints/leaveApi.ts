@@ -64,6 +64,11 @@ export interface LeaveRecommendation {
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   reason: string;
   basis: string[];
+  /**
+   * Present when the rules engine overrode the assistant — a blocking rule
+   * forcing a rejection, or a concern raising an approval to a review.
+   */
+  adjusted?: string;
 }
 
 export interface ListArgs {

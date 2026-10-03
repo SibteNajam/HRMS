@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Role } from '../../../common/enums/role.enum.js';
 import {
+  ANALYTICS_TOOLS, ANALYTICS_TOOL_NAMES,
   HR_TOOLS, HR_TOOL_NAMES, SELF_TOOLS, SELF_TOOL_NAMES,
   SHARED_TOOLS, SHARED_TOOL_NAMES, toolsForRole,
 } from './tool-definitions.js';
 
-const ALL_TOOLS = [...SELF_TOOLS, ...SHARED_TOOLS, ...HR_TOOLS];
+const ALL_TOOLS = [...SELF_TOOLS, ...SHARED_TOOLS, ...ANALYTICS_TOOLS, ...HR_TOOLS];
 
 const names = (role: Role) => toolsForRole(role).map((t) => t.function.name);
 
@@ -15,7 +16,7 @@ describe('tool scoping', () => {
     // hours, holidays, who is off. They carry nobody's salary or records,
     // so there is nothing to scope.
     expect(names(Role.EMPLOYEE).sort()).toEqual(
-      [...SELF_TOOL_NAMES, ...SHARED_TOOL_NAMES].sort(),
+      [...SELF_TOOL_NAMES, ...SHARED_TOOL_NAMES, ...ANALYTICS_TOOL_NAMES].sort(),
     );
   });
 
@@ -30,13 +31,25 @@ describe('tool scoping', () => {
 
   it('gives HR every tier', () => {
     expect(names(Role.HR)).toHaveLength(
-      SELF_TOOLS.length + SHARED_TOOLS.length + HR_TOOLS.length,
+      SELF_TOOLS.length + SHARED_TOOLS.length + ANALYTICS_TOOLS.length + HR_TOOLS.length,
     );
+  });
+
+  it('gives the generic query tool to every role', () => {
+    // It is safe for an employee to hold because what it returns is scoped
+    // inside the translator, from the session. Withholding it would mean an
+    // employee could not ask "how many days have I taken by leave type".
+    for (const role of [Role.EMPLOYEE, Role.HR, Role.ADMIN]) {
+      expect(names(role)).toContain('query_hr_data');
+    }
   });
 
   it('keeps the three tiers disjoint', () => {
     // A tool in two tiers would make the role filter ambiguous.
-    const all = [...SELF_TOOL_NAMES, ...SHARED_TOOL_NAMES, ...HR_TOOL_NAMES];
+    const all = [
+      ...SELF_TOOL_NAMES, ...SHARED_TOOL_NAMES,
+      ...ANALYTICS_TOOL_NAMES, ...HR_TOOL_NAMES,
+    ];
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -51,7 +64,10 @@ describe('tool safety', () => {
     // anticipate every name someone might add, and "pay" in "payslips"
     // already showed how easily that misfires.
     for (const tool of ALL_TOOLS) {
-      expect(tool.function.name).toMatch(/^(get|search|list|find)_/);
+      // Every prefix here is a read verb, added one at a time and on
+      // purpose. Nothing that mutates can be named this way by accident,
+      // which is what a blacklist of write verbs could never promise.
+      expect(tool.function.name).toMatch(/^(get|search|list|find|query|describe)_/);
     }
   });
 
@@ -63,6 +79,17 @@ describe('tool safety', () => {
       expect(Object.keys(props)).not.toContain('employeeId');
       expect(Object.keys(props)).not.toContain('employee_id');
       expect(Object.keys(props)).not.toContain('userId');
+    }
+  });
+
+  it('the generic query tool names nobody either', () => {
+    // It takes an entity and filters. Who the rows belong to is decided by
+    // the registry from the session, so there is no parameter to abuse.
+    for (const tool of ANALYTICS_TOOLS) {
+      const props = (tool.function.parameters?.properties ?? {}) as Record<string, unknown>;
+      for (const key of Object.keys(props)) {
+        expect(key).not.toMatch(/employee|user|person/i);
+      }
     }
   });
 

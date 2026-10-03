@@ -3,9 +3,14 @@
 How the assistant answers **any** question about HR data without a developer
 writing a function for each one.
 
+> **Status: built.** Layers 1 and 2 are implemented and tested
+> (`backend/src/modules/ai/semantic/`, 140 tests). Layer 3 is not, and the
+> reasoning for leaving it is in §9. §10 records where the build differs from
+> this plan and why.
+
 ---
 
-## 1. The problem with what exists today
+## 1. The problem this replaced
 
 - The assistant has **21 hand-written tools**. Each is one function, one question shape.
 - It answers well when a tool happens to fit:
@@ -117,24 +122,24 @@ That is the property you asked for.
 
 ## 6. Build order
 
-- [ ] **Step 1 — Registry scaffold**
+- [x] **Step 1 — Registry scaffold**
   - Define the `EntityDefinition` type.
   - Register three entities first: `attendance`, `leaveRequest`, `employee`.
-- [ ] **Step 2 — The translator**
+- [x] **Step 2 — The translator**
   - Validate an incoming query against the registry.
   - Reject unknown fields, metrics, entities.
   - Apply `scopeBy` from the session.
   - Build and run the Prisma query.
   - Unit tests: scoping applied, denied columns refused, unknown entity rejected.
-- [ ] **Step 3 — Expose as one tool**
+- [x] **Step 3 — Expose as one tool**
   - Add `query_hr_data` to the tool list, alongside the existing 21.
   - System prompt: "prefer a specific tool; use `query_hr_data` when none fits."
-- [ ] **Step 4 — Fill out the registry**
+- [x] **Step 4 — Fill out the registry**
   - Add `payslip`, `due`, `holiday`, `leaveBalance`.
-- [ ] **Step 5 — Prune the curated tools**
+- [ ] **Step 5 — Prune the curated tools** *(not done — see §10)*
   - Delete the ones the registry now covers better.
   - Keep the ones that are genuinely hand-tuned (leave recommendation context, payslip comparison).
-- [ ] **Step 6 — Layer 3, if still needed**
+- [ ] **Step 6 — Layer 3** *(not needed — see §9)*
   - Read-only MySQL user, column grants revoked.
   - `run_sql_readonly` tool, HR/ADMIN only.
   - Always return the SQL with the answer so HR can check it.
@@ -163,3 +168,93 @@ That is the property you asked for.
 - A semantic layer for composition: one declaration per entity, not per question.
 - A guarded escape hatch for the long tail, scoped to roles that already have the access.
 - The security boundary lives in **one translator**, not scattered across every tool.
+
+
+---
+
+## 9. Why layer 3 was not built
+
+The read-only SQL escape hatch is the standard answer and it stays on the
+plan, but nothing currently reaches for it:
+
+- Ten entities in the registry cover every table that holds answerable data.
+- The questions that defeated the curated tools — *"which department has the
+  highest overtime"*, *"who was late most often"*, *"average take-home by
+  department"* — are all answered by layer 2, verified against the real
+  database.
+- A read-only grant stops writes, not over-reads. For HR that is fine, since
+  they are entitled to every row anyway; so layer 3 would add a second way to
+  do what layer 2 already does, with a worse failure mode.
+
+It becomes worth building when someone asks a question the registry genuinely
+cannot compose — a window function, a self-join, a correlated subquery. Until
+there is such a question, it is an unused code path with database credentials
+attached to it.
+
+---
+
+## 10. Where the build differs from this plan
+
+**Fields are a whitelist, not a `denied` list.**
+The plan had `denied: ['passwordHash']`. That is a blacklist: a column added
+to the schema is exposed until somebody remembers to deny it. Instead each
+entity lists the fields that exist, and anything unlisted is invisible. A new
+column is private by default. `users` is not in the registry at all, so there
+is no route to a password hash by any spelling.
+
+**The catalogue is split in two.**
+The plan put the whole registry in the system prompt. Measured, that is about
+1,100 tokens on every message, paid whether or not the question needs it — on
+an 8k-per-minute tier that is the difference between answering and being
+rate-limited. So the prompt carries a one-line index per entity, and
+`describe_hr_entity` fetches the fields and metrics for one entity when the
+model is actually composing a query. This is the `list_tables` /
+`describe_schema` pattern from the standard LangChain SQL-agent write-ups,
+and it is the one idea from them worth taking. A spec enforces the budget so
+the registry cannot grow past it unnoticed.
+
+**Aggregation happens in TypeScript, not SQL.**
+Prisma cannot `groupBy` a relation field, and the useful groupings all cross
+one — overtime by *department*, leave by *job title*. Overtime is not a
+column either; it is derived from two timestamps by the same function payroll
+uses, so the assistant and the payslip cannot disagree. One always-correct
+path beats two paths where only one handles the interesting half of the
+questions. A query matching more than 5,000 rows is refused with a message
+telling the model to narrow it, rather than aggregating a slice and returning
+a confident wrong total.
+
+**The curated tools were kept.**
+Step 5 proposed deleting the ones the registry covers. They are cheaper — one
+round trip instead of describe-then-query — and they return data already
+shaped for reading. The registry is the fallback, not the replacement. Worth
+revisiting once there is real usage data showing which tools the model stops
+choosing.
+
+---
+
+## 11. What the tests hold down
+
+`backend/src/modules/ai/semantic/*.spec.ts` — 140 tests. The ones that matter:
+
+- **Every entity × every role.** For each registered entity, each role either
+  is refused outright or comes back with a scope. A restricted role must get
+  a `where` naming its own employee id. This sweep covers entities that do
+  not exist yet, which is the point.
+- **Fail-closed.** An entity declared without `ownedVia` and without
+  `shared` is refused for a restricted role rather than shown in full.
+  Forgetting a line in the registry closes an entity; it never opens one.
+- **A null employee id is refused.** Scoping to `undefined` would produce
+  `where: { employeeId: undefined }`, which Prisma drops — and the query
+  would quietly return everybody.
+- **The scope cannot be displaced.** It is the first clause of an `AND`
+  array, so a filter the model writes can only narrow it. A query naming
+  another employee returns that employee's rows intersected with your own:
+  nothing.
+- **A restricted field reads as non-existent.** "You may not see baseSalary"
+  confirms both that it exists and that somebody can see it. The message says
+  neither.
+- **No credential table is reachable.** `users`, `role_assignments` and
+  `audit_logs` are not in the registry, and a test fails if they are added.
+
+Verified against the live database as well: an employee grouping payslips by
+department gets one row — their own.

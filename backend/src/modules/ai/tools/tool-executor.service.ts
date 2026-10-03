@@ -5,7 +5,10 @@ import { AttendanceService } from '../../attendance/attendance.service.js';
 import { Role } from '../../../common/enums/role.enum.js';
 import type { JwtUser } from '../../../common/types/jwt-user.js';
 import { dateOnly } from '../../attendance/attendance-policy.js';
-import { HR_TOOL_NAMES, SELF_TOOL_NAMES, SHARED_TOOL_NAMES } from './tool-definitions.js';
+import {
+  ANALYTICS_TOOL_NAMES, HR_TOOL_NAMES, SELF_TOOL_NAMES, SHARED_TOOL_NAMES,
+} from './tool-definitions.js';
+import { SemanticQueryService } from '../semantic/semantic-query.service.js';
 
 /**
  * Runs a tool the model asked for.
@@ -24,6 +27,7 @@ export class ToolExecutorService {
     private readonly prisma: PrismaService,
     private readonly leave: LeaveService,
     private readonly attendance: AttendanceService,
+    private readonly semantic: SemanticQueryService,
   ) {}
 
   async execute(name: string, rawArgs: string, user: JwtUser): Promise<unknown> {
@@ -34,7 +38,8 @@ export class ToolExecutorService {
     if (
       !SELF_TOOL_NAMES.has(name) &&
       !SHARED_TOOL_NAMES.has(name) &&
-      !HR_TOOL_NAMES.has(name)
+      !HR_TOOL_NAMES.has(name) &&
+      !ANALYTICS_TOOL_NAMES.has(name)
     ) {
       throw new ForbiddenException(`Unknown tool ${name}`);
     }
@@ -48,6 +53,15 @@ export class ToolExecutorService {
     }
 
     switch (name) {
+      // ── Semantic layer ──────────────────────────────────────────────
+      // Held by every role. Which rows come back is decided inside, from
+      // the session, against the entity registry — not here.
+      case 'describe_hr_entity':
+        return this.semantic.describe(args, user);
+
+      case 'query_hr_data':
+        return this.semantic.run(args, user);
+
       // ── Self ────────────────────────────────────────────────────────
       case 'get_my_profile': {
         const e = await this.prisma.employee.findUniqueOrThrow({

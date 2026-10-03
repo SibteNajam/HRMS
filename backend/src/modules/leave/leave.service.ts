@@ -21,6 +21,12 @@ import {
 import type { CreateLeaveRequestDto } from './dto/create-leave-request.dto.js';
 import type { ReviewLeaveRequestDto } from './dto/review-leave-request.dto.js';
 import type { ListLeaveDto } from './dto/list-leave.dto.js';
+
+/** "14 Sep" — for a flag label a person reads, not for a stored value. */
+const shortDay = (date: Date) =>
+  new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric', month: 'short', timeZone: 'UTC',
+  }).format(date);
 import {
   buildFlags, THRESHOLDS,
   type DecisionContext,
@@ -668,7 +674,11 @@ export class LeaveService {
     const request = await this.prisma.leaveRequest.findUniqueOrThrow({
       where: { id: requestId },
       include: {
-        employee: { select: { id: true, departmentId: true, joiningDate: true } },
+        employee: {
+          select: {
+            id: true, departmentId: true, joiningDate: true, designation: true,
+          },
+        },
         leaveType: { select: { id: true } },
       },
     });
@@ -681,8 +691,9 @@ export class LeaveService {
     priorStart.setDate(priorStart.getDate() - THRESHOLDS.WINDOW_DAYS);
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
-    const [current, prior, balanceRows, history, rejected, department, othersOff] =
-      await Promise.all([
+    const [
+      current, prior, balanceRows, history, rejected, department, sameRoleSize, othersOff,
+    ] = await Promise.all([
         this.prisma.attendance.groupBy({
           by: ['status'],
           where: { employeeId, date: { gte: windowStart, lte: now } },
@@ -707,6 +718,20 @@ export class LeaveService {
             employmentStatus: 'ACTIVE',
           },
         }),
+        // How many people do this same job here. Two backend engineers is
+        // the case that matters: if the other one is already off, approving
+        // this leaves the role uncovered however healthy the department
+        // ratio looks.
+        this.prisma.employee.count({
+          where: {
+            departmentId: request.employee.departmentId,
+            designation: request.employee.designation,
+            employmentStatus: 'ACTIVE',
+          },
+        }),
+        // Not capped. The overlapping approved leaves in one department over
+        // one date range is a handful of rows, and a cap here would quietly
+        // understate both the coverage ratio and the same-role check.
         this.prisma.leaveRequest.findMany({
           where: {
             status: 'APPROVED',
@@ -715,8 +740,13 @@ export class LeaveService {
             startDate: { lte: request.endDate },
             endDate: { gte: request.startDate },
           },
-          select: { employee: { select: { firstName: true, lastName: true } } },
-          take: 5,
+          select: {
+            startDate: true,
+            endDate: true,
+            employee: {
+              select: { firstName: true, lastName: true, designation: true },
+            },
+          },
         }),
       ]);
 
@@ -755,6 +785,10 @@ export class LeaveService {
       ),
     );
 
+    const sameRole = othersOff.filter(
+      (o) => o.employee.designation === request.employee.designation,
+    );
+
     const partial = {
       attendance: {
         windowDays: THRESHOLDS.WINDOW_DAYS,
@@ -782,8 +816,16 @@ export class LeaveService {
       coverage: {
         departmentSize: department,
         othersOffInRange: othersOff.length,
-        othersOffNames: othersOff.map(
-          (o) => `${o.employee.firstName} ${o.employee.lastName}`,
+        othersOffNames: othersOff
+          .slice(0, 5)
+          .map((o) => `${o.employee.firstName} ${o.employee.lastName}`),
+        designation: request.employee.designation,
+        sameRoleSize,
+        sameRoleOff: sameRole.length,
+        sameRoleOffNames: sameRole.map(
+          (o) =>
+            `${o.employee.firstName} ${o.employee.lastName} ` +
+            `(${shortDay(o.startDate)}–${shortDay(o.endDate)})`,
         ),
       },
     };

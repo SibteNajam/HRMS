@@ -30,6 +30,8 @@ const TOOL_LABELS: Record<string, string> = {
   get_pending_leave_requests: 'Checking pending leave requests',
   get_leave_balances_overview: 'Reading leave balances',
   get_outstanding_dues: 'Checking outstanding dues',
+  describe_hr_entity: 'Looking at what data is available',
+  query_hr_data: 'Querying HR records',
 };
 
 @Injectable()
@@ -257,7 +259,15 @@ Amounts are in ${currency}. Do not use a table. Do not greet them.`;
         model: this.config.getOrThrow<string>('AI_MODEL'),
         max_tokens: 400,
         messages: [
-          { role: 'system', content: buildSystemPrompt(user, await this.profileSnapshot(user)) },
+          {
+            role: 'system',
+            // No catalogue here: this call is handed its figures and has no
+            // tools, so several hundred tokens of entity listing would buy
+            // nothing on a rate-limited tier.
+            content: buildSystemPrompt(user, await this.profileSnapshot(user), {
+              catalogue: false,
+            }),
+          },
           { role: 'user', content: prompt },
         ],
       });

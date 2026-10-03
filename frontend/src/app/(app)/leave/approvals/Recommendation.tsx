@@ -1,6 +1,6 @@
 'use client';
 
-import { BadgeCheck, CircleAlert, Sparkles, TriangleAlert } from 'lucide-react';
+import { BadgeCheck, CircleAlert, Scale, Sparkles, TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
 
@@ -55,6 +55,16 @@ export function Recommendation({ rec }: { rec: LeaveRecommendation }) {
           </div>
 
           <p className="mt-1 text-body leading-snug text-content-primary">{rec.reason}</p>
+
+          {/* An override is shown rather than silently applied. If the rules
+              engine moved the verdict, the reviewer should see that it was
+              the rules and not the model that did it. */}
+          {rec.adjusted && (
+            <p className="mt-2 flex items-start gap-1.5 rounded-md bg-surface-raised px-2 py-1.5 text-caption text-content-secondary">
+              <Scale size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
+              <span>{rec.adjusted}</span>
+            </p>
+          )}
 
           {rec.basis.length > 0 && (
             <>

@@ -3,6 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type { JwtUser } from '../../common/types/jwt-user.js';
 import { LeaveService } from '../leave/leave.service.js';
+import {
+  describeRules,
+  floorFromFlags,
+  type DecisionFlag,
+} from '../leave/leave-decision-context.js';
 
 export type Verdict = 'APPROVE' | 'REVIEW' | 'REJECT';
 
@@ -13,7 +18,15 @@ export interface LeaveRecommendation {
   reason: string;
   /** The facts the verdict rests on, so HR can check the reasoning. */
   basis: string[];
+  /**
+   * Set when the rules engine overrode what the model proposed. Shown to HR
+   * so an override is visible rather than silent.
+   */
+  adjusted?: string;
 }
+
+/** APPROVE < REVIEW < REJECT. A recommendation may be raised, never lowered. */
+const STRENGTH: Record<Verdict, number> = { APPROVE: 0, REVIEW: 1, REJECT: 2 };
 
 /**
  * Recommends a decision on each pending leave request.
@@ -58,8 +71,13 @@ export class LeaveRecommendationService {
 
     // Everything the model sees is already computed by the rules engine.
     // It weighs facts; it does not produce them.
+    const floors = new Map<number, ReturnType<typeof floorFromFlags>>();
+
     const cases = queue.data.map((r) => {
       const d = r.decision;
+      // Decided here, in code, from the rules that fired. The model is asked
+      // to explain the case; it is not asked whether the rules apply.
+      floors.set(r.id, floorFromFlags((d?.flags ?? []) as DecisionFlag[]));
       return {
         id: r.id,
         employee: `${r.employee.firstName} ${r.employee.lastName}`,
@@ -79,10 +97,19 @@ export class LeaveRecommendationService {
         teamSize: d?.coverage.departmentSize,
         othersOffSameDates: d?.coverage.othersOffInRange,
         othersOffNames: d?.coverage.othersOffNames,
+        // Who else can do this job, and whether they are already off. This
+        // is what lets the recommendation say "the only other backend
+        // engineer is off that week" instead of "coverage looks fine".
+        jobTitle: d?.coverage.designation,
+        peopleWithSameJobTitle: d?.coverage.sameRoleSize,
+        sameJobTitleOffSameDates: d?.coverage.sameRoleOff,
+        sameJobTitleOffNames: d?.coverage.sameRoleOffNames,
         tenureMonths: d?.history.tenureMonths,
         daysTakenThisYear: d?.history.daysTakenThisYear,
         rejectedThisYear: d?.history.rejectedThisYear,
-        rulesEngineFlags: d?.flags.map((f) => `${f.label}: ${f.detail}`) ?? [],
+        // The code is included so the model can match a flag to the rule
+        // book it was given, rather than inferring meaning from the wording.
+        rulesEngineFlags: d?.flags.map((f) => `${f.code} — ${f.label}: ${f.detail}`) ?? [],
       };
     });
 
@@ -92,14 +119,17 @@ export class LeaveRecommendationService {
         max_tokens: 2000,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: SYSTEM },
+          { role: 'system', content: systemPrompt() },
           { role: 'user', content: JSON.stringify({ requests: cases }) },
         ],
       });
 
       const raw = response.choices[0].message.content ?? '{}';
       const parsed = JSON.parse(raw) as { recommendations?: unknown[] };
-      return this.validate(parsed.recommendations ?? [], cases.map((c) => c.id));
+      return this.reconcile(
+        this.validate(parsed.recommendations ?? [], cases.map((c) => c.id)),
+        floors,
+      );
     } catch (err) {
       if (err instanceof SyntaxError) {
         this.logger.error('Model returned unparseable JSON');
@@ -152,9 +182,82 @@ export class LeaveRecommendationService {
       }];
     });
   }
+
+  /**
+   * The rules engine has the last word.
+   *
+   * Three things happen here, all of them in code:
+   *   - a blocking rule forces REJECT, whatever the model said
+   *   - a concern raises an APPROVE to REVIEW
+   *   - a REJECT with no blocking rule is lowered to REVIEW, because
+   *     refusing someone's leave on judgement alone is a person's decision
+   *
+   * It also fills in any request the model skipped. A missing recommendation
+   * used to leave a card blank; now it falls back to what the rules alone
+   * say, which is the honest answer rather than no answer.
+   */
+  private reconcile(
+    recommendations: LeaveRecommendation[],
+    floors: Map<number, Verdict>,
+  ): LeaveRecommendation[] {
+    const byId = new Map(recommendations.map((r) => [r.requestId, r]));
+
+    return [...floors.entries()].map(([requestId, floor]) => {
+      const model = byId.get(requestId);
+
+      if (!model) {
+        return {
+          requestId,
+          verdict: floor,
+          confidence: 'MEDIUM' as const,
+          reason: REASON_FOR[floor],
+          basis: [],
+          adjusted: 'The assistant did not cover this one; the rules engine decided it.',
+        };
+      }
+
+      if (floor === 'REJECT' && model.verdict !== 'REJECT') {
+        return {
+          ...model,
+          verdict: 'REJECT' as const,
+          confidence: 'HIGH' as const,
+          adjusted: 'A blocking rule applies, so this cannot be approved as it stands.',
+        };
+      }
+
+      if (model.verdict === 'REJECT' && floor !== 'REJECT') {
+        return {
+          ...model,
+          verdict: 'REVIEW' as const,
+          adjusted:
+            'No rule blocks this request, so it is for a person to decide rather ' +
+            'than something the assistant can refuse.',
+        };
+      }
+
+      if (STRENGTH[model.verdict] < STRENGTH[floor]) {
+        return {
+          ...model,
+          verdict: floor,
+          adjusted: 'The rules engine raised this — something here needs a person to look.',
+        };
+      }
+
+      return model;
+    });
+  }
 }
 
-const SYSTEM = `You advise an HR reviewer on leave requests. You do not decide
+/**
+ * Generated, not written.
+ *
+ * The rule book comes from DECISION_RULES, so a factor added to the leave
+ * rules tomorrow is described to the model tomorrow. Nobody edits this
+ * string to teach the assistant a new consideration — that is the whole
+ * point of keeping the rules as data.
+ */
+function systemPrompt(): string {
+  return `You advise an HR reviewer on leave requests. You do not decide
 them — a person reads your recommendation and clicks approve or reject.
 
 Return JSON only, in this exact shape:
@@ -185,4 +288,19 @@ RULES
    reason to approve.
 5. Keep "reason" plain and specific. "Balance is sufficient and no one else in
    Engineering is off that week" beats "looks fine".
-6. Do not mention being an AI, and do not hedge with phrases like "it appears".`;
+   When a clash is the point, name the person and the dates: "Ahmed, the only
+   other Backend Engineer, is off 14-18 Sep" is what the reviewer needs in
+   order to act, and it is already in the data you were sent.
+6. Do not mention being an AI, and do not hedge with phrases like "it appears".
+
+RULE BOOK
+${describeRules()}`;
+}
+
+/** Used when the model skipped a request and the rules decided it alone. */
+const REASON_FOR: Record<Verdict, string> = {
+  APPROVE: 'No rule flagged anything: balance, attendance and team coverage all look normal.',
+  REVIEW: 'The rules engine raised a concern on this request. Read the flags before deciding.',
+  REJECT: 'A blocking rule applies — the system would refuse this approval as it stands.',
+};
+

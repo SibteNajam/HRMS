@@ -50,6 +50,13 @@ export function DecisionPanel({ ctx }: { ctx: DecisionContext }) {
   const [open, setOpen] = useState(false);
   const s = summarise(ctx);
   const v = VERDICT[s.verdict];
+  // Everyone else who does this job is already off. Mirrors the
+  // ROLE_UNCOVERED rule on the server, which is what actually decides the
+  // badge — this only tints the tile.
+  const roleUncovered =
+    ctx.coverage.sameRoleSize > 1 &&
+    ctx.coverage.sameRoleOff > 0 &&
+    ctx.coverage.sameRoleOff >= ctx.coverage.sameRoleSize - 1;
   const Glyph = v.icon;
 
   return (
@@ -159,17 +166,26 @@ export function DecisionPanel({ ctx }: { ctx: DecisionContext }) {
                   : 'Unpaid — no quota'
               }
             />
+            {/* The department ratio and the role cover are different
+                questions. Two backend engineers in a team of twelve reads
+                as well covered right up until the other one is off, so the
+                job title goes in the line underneath. */}
             <Metric
               icon={Users}
               label="Team off"
               value={`${ctx.coverage.othersOffInRange}/${ctx.coverage.departmentSize}`}
               tone={
-                ctx.coverage.departmentSize > 1 &&
-                ctx.coverage.othersOffInRange / ctx.coverage.departmentSize >= 0.4
+                roleUncovered ||
+                (ctx.coverage.departmentSize > 1 &&
+                  ctx.coverage.othersOffInRange / ctx.coverage.departmentSize >= 0.4)
                   ? 'warning'
                   : 'default'
               }
-              sub="during these dates"
+              sub={
+                ctx.coverage.sameRoleSize > 1
+                  ? `${ctx.coverage.sameRoleOff}/${ctx.coverage.sameRoleSize - 1} other ${ctx.coverage.designation}`
+                  : 'during these dates'
+              }
             />
           </div>
 

@@ -3,6 +3,7 @@ import { AiController } from './ai.controller.js';
 import { AiService } from './ai.service.js';
 import { ToolExecutorService } from './tools/tool-executor.service.js';
 import { LeaveRecommendationService } from './leave-recommendation.service.js';
+import { SemanticQueryService } from './semantic/semantic-query.service.js';
 import { LeaveModule } from '../leave/leave.module.js';
 import { AttendanceModule } from '../attendance/attendance.module.js';
 
@@ -13,7 +14,12 @@ import { AttendanceModule } from '../attendance/attendance.module.js';
 @Module({
   imports: [forwardRef(() => LeaveModule), AttendanceModule],
   controllers: [AiController],
-  providers: [AiService, ToolExecutorService, LeaveRecommendationService],
+  providers: [
+    AiService,
+    ToolExecutorService,
+    SemanticQueryService,
+    LeaveRecommendationService,
+  ],
   exports: [AiService, LeaveRecommendationService],
 })
 export class AiModule {}

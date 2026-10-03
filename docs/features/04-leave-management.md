@@ -98,8 +98,17 @@ All in `leave-decision-context.ts`, all constants:
 | `REPEATED_LATENESS` | **3 or more** late arrivals in 90 days |
 | `INSUFFICIENT_BALANCE` | approval would take the balance below zero |
 | `TEAM_COVERAGE` | **40%+** of the department already off in the range |
+| `ROLE_UNCOVERED` | everyone else with the **same job title** is off across these dates |
 | `THIN_REASON` | reason under 25 characters |
 | `NEW_JOINER` | under 3 months' tenure |
+
+`ROLE_UNCOVERED` exists because the department ratio misses the case that
+actually stops work. Two backend engineers in a team of twelve is 8% of the
+department and 100% of the capability: if the other one is already off, the
+ratio still reads healthy while nobody is left who can do the job. The flag
+names the person and their dates — *"Ahmed Raza is the only other Backend
+Engineer, and is already off across these dates"* — because that is what the
+reviewer needs in order to act on it.
 
 **Computed by rules, never by the model.** A flag has to be reproducible and
 defensible: "attendance below 80%" can be said to an employee's face;
@@ -108,6 +117,55 @@ in a sentence, not to produce them.
 
 When nothing fires, a `CLEAR` flag is emitted deliberately — a queue of cards
 with no badges looks like the check failed to run.
+
+### Adding a factor is one array entry
+
+The rules are data, not an if-chain. `DECISION_RULES` in
+`leave-decision-context.ts` holds one object per factor:
+
+```ts
+{
+  code: 'ROLE_UNCOVERED',
+  level: 'warning',
+  weight: 'concern',
+  meaning: 'Everyone else who does this job is already off across these dates…',
+  applies: ({ ctx }) => ctx.coverage.sameRoleSize > 1 && …,
+  describe: ({ ctx }) => ({ label: …, detail: … }),
+}
+```
+
+Appending one entry does four things with no other edit:
+
+1. HR sees the badge on the approval card.
+2. The AI recommendation prompt describes it — the rule book sent to the
+   model is **generated** from this array by `describeRules()`, so a factor
+   added today is explained to the model today. No prompt is rewritten.
+3. The recommended verdict moves, in code. `weight` decides a floor:
+   `blocking` forces `REJECT`, `concern` raises an `APPROVE` to `REVIEW`,
+   `note` changes nothing.
+4. A test proves it. `leave-decision-context.spec.ts` pushes a throwaway rule
+   onto the array and asserts all three effects, then pops it.
+
+The weight is what makes this trustworthy rather than hopeful. A new factor
+changes the recommendation because the rules engine applies it, not because
+the model was told about it and is assumed to have noticed.
+
+### The rules engine has the last word
+
+`reconcile()` in `leave-recommendation.service.ts` runs after the model
+answers:
+
+| Situation | Result |
+|---|---|
+| A `blocking` rule fired | Forced to `REJECT`, confidence `HIGH` |
+| The model said `REJECT`, nothing blocks | Lowered to `REVIEW` |
+| A `concern` fired, the model said `APPROVE` | Raised to `REVIEW` |
+| The model skipped the request entirely | Decided from the rules alone |
+
+The second row is the important one: **the assistant cannot refuse somebody's
+leave on judgement.** Refusing is a person's decision, so a model-only
+rejection becomes a review. Every override sets an `adjusted` note that the
+approval card displays, so an override is visible rather than silent.
 
 ## The approvals screen reads as a conclusion, not a dataset
 

@@ -1,5 +1,6 @@
 import type { JwtUser } from '../../../common/types/jwt-user.js';
 import { Role } from '../../../common/enums/role.enum.js';
+import { queryGuidance } from '../semantic/catalog.js';
 
 /**
  * The three rules in prompt form.
@@ -29,8 +30,9 @@ export interface ProfileSnapshot {
 export function buildSystemPrompt(
   user: JwtUser,
   profile: ProfileSnapshot | null,
-  currency = 'PKR',
+  options: { currency?: string; catalogue?: boolean } = {},
 ): string {
+  const { currency = 'PKR', catalogue = true } = options;
   const isEmployee = user.role === Role.EMPLOYEE;
 
   const whoBlock = profile
@@ -120,7 +122,12 @@ percentages, lateness, overtime, holidays), payroll (payslips and their
 components)${isEmployee ? '' : ', organisation figures (headcount, payroll totals)'},
 dues${isEmployee ? ' and your own profile' : ', employee lookup and pending approvals'}.
 If someone asks for something outside this, say briefly what you can do
-instead.`;
+instead.
+
+If a question needs a total, a ranking or a breakdown that no named tool
+provides, compose it with query_hr_data rather than saying you cannot. Only
+say you cannot when the data itself is not in the catalogue below.
+${catalogue ? `\n${queryGuidance(user.role)}` : ''}`;
 }
 
 /** Anchors relative dates so "next week" resolves to real dates. */

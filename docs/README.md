@@ -42,6 +42,7 @@ in this section depends on its tokens.
 | 15 | [Page Blueprints](15-page-blueprints.md) | What goes on every screen, and why |
 | 16 | [Data Visualization](16-data-visualization.md) | Chart forms, validated palettes, marks, interaction |
 | 17 | [UI Customization](17-ui-customization.md) | White-labelling, brand-colour generation, i18n readiness |
+| 18 | [AI Query Architecture](18-ai-query-architecture.md) | How the assistant answers any question without a function per question — the plan to replace hardcoded tools with a semantic layer |
 
 ## Feature specifications
 

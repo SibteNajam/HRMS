@@ -11,6 +11,7 @@ import { Role } from '../../common/enums/role.enum.js';
 import { paginated } from '../../common/dto/pagination.dto.js';
 import type { JwtUser } from '../../common/types/jwt-user.js';
 import { Prisma } from '../../generated/prisma/client.js';
+import type { LeaveRecommendation as StoredRow } from '../../generated/prisma/client.js';
 import {
   canReview,
   countWorkingDays,
@@ -21,16 +22,53 @@ import {
 import type { CreateLeaveRequestDto } from './dto/create-leave-request.dto.js';
 import type { ReviewLeaveRequestDto } from './dto/review-leave-request.dto.js';
 import type { ListLeaveDto } from './dto/list-leave.dto.js';
+import {
+  buildFlags, contextFingerprint, THRESHOLDS,
+  type DecisionContext,
+} from './leave-decision-context.js';
+
+/**
+ * Stored advice, with the one thing a stored opinion needs: whether it is
+ * still about the same situation.
+ */
+export interface PresentedRecommendation {
+  requestId: number;
+  verdict: StoredRow['verdict'];
+  confidence: StoredRow['confidence'];
+  reason: string;
+  basis: string[];
+  adjusted?: string;
+  /** The facts moved after this was written, so it may no longer hold. */
+  stale: boolean;
+  generatedAt: Date;
+}
+
+function presentRecommendation(
+  row: StoredRow | null,
+  decision: DecisionContext,
+  reason: string,
+): PresentedRecommendation | null {
+  if (!row) return null;
+  return {
+    requestId: row.leaveRequestId,
+    verdict: row.verdict,
+    confidence: row.confidence,
+    reason: row.reason,
+    basis: Array.isArray(row.basis) ? row.basis.map(String) : [],
+    ...(row.adjusted ? { adjusted: row.adjusted } : {}),
+    // Compared against the context just computed for this card, so a
+    // colleague's leave being approved in the meantime shows up here
+    // rather than being silently ignored.
+    stale: row.factsHash !== contextFingerprint(decision, reason),
+    generatedAt: row.generatedAt,
+  };
+}
 
 /** "14 Sep" — for a flag label a person reads, not for a stored value. */
 const shortDay = (date: Date) =>
   new Intl.DateTimeFormat('en-GB', {
     day: 'numeric', month: 'short', timeZone: 'UTC',
   }).format(date);
-import {
-  buildFlags, THRESHOLDS,
-  type DecisionContext,
-} from './leave-decision-context.js';
 
 const REQUEST_INCLUDE = {
   leaveType: { select: { id: true, name: true, annualQuota: true, isPaid: true } },
@@ -46,6 +84,12 @@ const REQUEST_INCLUDE = {
     select: { id: true, email: true, role: true,
       employee: { select: { firstName: true, lastName: true } } },
   },
+} satisfies Prisma.LeaveRequestInclude;
+
+/** The queue carries stored advice with it, so the screen costs one request. */
+const PENDING_INCLUDE = {
+  ...REQUEST_INCLUDE,
+  recommendation: true,
 } satisfies Prisma.LeaveRequestInclude;
 
 @Injectable()
@@ -258,7 +302,7 @@ export class LeaveService {
 
     const [rows, total] = await Promise.all([
       this.prisma.leaveRequest.findMany({
-        where, include: REQUEST_INCLUDE,
+        where, include: PENDING_INCLUDE,
         orderBy: { createdAt: 'asc' }, // oldest first — longest waiting
         skip: dto.skip, take: dto.limit,
       }),
@@ -269,10 +313,17 @@ export class LeaveService {
     // tab to check attendance, and the conflict with a colleague's leave is
     // the thing a human scanning a list reliably misses.
     const withContext = await Promise.all(
-      rows.map(async (r) => ({
-        ...r,
-        decision: await this.decisionContext(r.id),
-      })),
+      rows.map(async ({ recommendation, ...r }) => {
+        const decision = await this.decisionContext(r.id);
+        return {
+          ...r,
+          decision,
+          // Advice travels with the queue rather than being fetched
+          // separately, so revisiting the screen costs nothing and loses
+          // nothing.
+          recommendation: presentRecommendation(recommendation, decision, r.reason),
+        };
+      }),
     );
 
     return paginated(withContext, total, { page: dto.page, limit: dto.limit });

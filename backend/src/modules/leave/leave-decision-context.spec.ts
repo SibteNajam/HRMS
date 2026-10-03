@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildFlags, CLEAR_FLAG, DECISION_RULES, describeRules, evaluateRules,
-  floorFromFlags, THRESHOLDS, verdictFloor, type Facts,
+  buildFlags, CLEAR_FLAG, contextFingerprint, DECISION_RULES, describeRules,
+  evaluateRules, floorFromFlags, THRESHOLDS, verdictFloor, type Facts,
 } from './leave-decision-context.js';
 
 /** A request with nothing wrong with it. Each test bends one thing. */
@@ -270,5 +270,46 @@ describe('role coverage', () => {
       },
     });
     expect(codes(everyone)).toEqual(expect.arrayContaining(['ROLE_UNCOVERED', 'TEAM_COVERAGE']));
+  });
+});
+
+
+describe('the staleness fingerprint', () => {
+  // Stored advice is only worth reusing while it is about the same
+  // situation. These are the changes that must invalidate it, and the
+  // stability that makes reuse possible at all.
+  const hash = (f: Facts, reason = GOOD_REASON) => contextFingerprint(f, reason);
+
+  it('is stable for the same facts', () => {
+    expect(hash(facts())).toBe(hash(facts()));
+  });
+
+  it('changes when a colleague is approved off', () => {
+    const before = facts();
+    const after = facts({
+      coverage: { ...facts().coverage, othersOffInRange: 2, sameRoleOff: 1 },
+    });
+    expect(hash(after)).not.toBe(hash(before));
+  });
+
+  it('changes when the balance moves', () => {
+    const after = facts({ balance: { allocated: 14, used: 6, remaining: 8, afterApproval: 5 } });
+    expect(hash(after)).not.toBe(hash(facts()));
+  });
+
+  it('changes when attendance is recorded', () => {
+    const after = facts({ attendance: { ...facts().attendance, absentDays: 3, percentage: 91 } });
+    expect(hash(after)).not.toBe(hash(facts()));
+  });
+
+  it('changes when the request itself is edited', () => {
+    expect(hash(facts(), 'A different reason entirely, with more detail.'))
+      .not.toBe(hash(facts()));
+  });
+
+  it('fits the column it is stored in', () => {
+    // CHAR(40) in the schema. A longer digest would be silently truncated
+    // and every comparison would then match.
+    expect(hash(facts())).toHaveLength(40);
   });
 });

@@ -122,6 +122,35 @@ export interface LeaveRequest {
   createdAt: string;
   /** Present on the approvals queue only — everything needed to decide. */
   decision?: DecisionContext;
+  /**
+   * Stored AI advice, carried with the queue so revisiting the screen
+   * neither loses it nor pays for it again. Null until somebody runs the
+   * analysis.
+   */
+  recommendation?: StoredRecommendation | null;
+}
+
+export interface AiRecommendation {
+  requestId: number;
+  verdict: 'APPROVE' | 'REVIEW' | 'REJECT';
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  reason: string;
+  basis: string[];
+  /**
+   * Present when the rules engine overrode the assistant — a blocking rule
+   * forcing a rejection, or a concern raising an approval to a review.
+   */
+  adjusted?: string;
+}
+
+export interface StoredRecommendation extends AiRecommendation {
+  /**
+   * The facts behind this advice have changed since it was written — a
+   * colleague's leave approved, an absence recorded, the balance moved.
+   * The advice is still shown, marked, rather than silently trusted.
+   */
+  stale: boolean;
+  generatedAt: string;
 }
 
 export type FlagLevel = 'info' | 'warning' | 'danger';

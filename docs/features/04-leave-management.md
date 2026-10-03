@@ -541,6 +541,43 @@ stamp — which is the thing §14's human-in-the-loop design exists to
 guarantee. It also gives the project a measurable result: how often HR agreed
 with the assistant.
 
+### The advice is stored, not held in a tab
+
+It used to live in component state. Navigating to another page and back
+threw it away, and the next visit paid the assistant again for the same
+answer — on a tier capped by tokens per minute, that is the expensive kind of
+free.
+
+`leave_recommendations` holds one row per request: verdict, confidence,
+reason, the facts cited, any rules-engine override, the model that produced
+it, and who ran the analysis. The queue carries it, so the approvals screen
+is **one request** and revisiting it costs nothing.
+
+Re-running the analysis only sends the requests that need it. Everything
+already analysed on unchanged facts is returned from the table without an
+upstream call.
+
+### Stored advice says when it stopped being true
+
+Caching an opinion about a person's leave is only safe if it can tell you it
+has gone out of date. `facts_hash` fingerprints the decision context the
+advice was written against — attendance, balance, history, and coverage. When
+a colleague's leave is approved or an absence is recorded, the hash stops
+matching:
+
+- the card shows *"The figures have changed since this was written"*
+- the header button becomes **Analyse N more**, and sends only those
+- nothing is silently re-run, and nothing silently stands on figures that
+  have moved
+
+Only values a rule actually reads go into the hash, so a column nothing
+depends on cannot invalidate advice that is still correct. `contextFingerprint`
+is tested for exactly this: stable across identical facts, different the
+moment coverage, balance, attendance or the request's own reason changes.
+
+A reviewer who wants a second opinion on unchanged facts can still force one
+— the button says **Re-analyse queue** when there is nothing outstanding.
+
 ### There is still no path from advice to action
 
 `POST /leave/requests/recommendations` returns JSON and writes nothing. The

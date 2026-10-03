@@ -1,6 +1,7 @@
 import { baseApi } from '../baseApi';
 import type {
-  Department, LeaveBalance, LeaveRequest, LeaveType, Paginated, Role,
+  AiRecommendation, Department, LeaveBalance, LeaveRequest, LeaveType,
+  Paginated, Role,
 } from '@/types';
 
 export interface EmployeeBalances {
@@ -58,18 +59,7 @@ export interface ReviewArgs {
   aiVerdict?: 'APPROVE' | 'REVIEW' | 'REJECT';
 }
 
-export interface LeaveRecommendation {
-  requestId: number;
-  verdict: 'APPROVE' | 'REVIEW' | 'REJECT';
-  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
-  reason: string;
-  basis: string[];
-  /**
-   * Present when the rules engine overrode the assistant — a blocking rule
-   * forcing a rejection, or a concern raising an approval to a review.
-   */
-  adjusted?: string;
-}
+export type { AiRecommendation, StoredRecommendation } from '@/types';
 
 export interface ListArgs {
   page?: number;
@@ -111,8 +101,17 @@ export const leaveApi = baseApi.injectEndpoints({
       providesTags: [{ type: 'LeaveRequest', id: 'ALL' }],
     }),
 
-    getLeaveRecommendations: build.mutation<LeaveRecommendation[], void>({
-      query: () => ({ url: '/leave/requests/recommendations', method: 'POST' }),
+    getLeaveRecommendations: build.mutation<AiRecommendation[], { force?: boolean } | void>({
+      query: (args) => ({
+        url: '/leave/requests/recommendations',
+        method: 'POST',
+        params: args?.force ? { force: 'true' } : undefined,
+      }),
+      // The advice is stored against each request, so the queue is the one
+      // place it is read from. Refetching it is cheaper and simpler than
+      // holding a second copy in component state that a navigation throws
+      // away.
+      invalidatesTags: [{ type: 'LeaveRequest', id: 'PENDING' }],
     }),
 
     createLeaveRequest: build.mutation<LeaveRequest, CreateLeaveArgs>({

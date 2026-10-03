@@ -2,11 +2,14 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type { JwtUser } from '../../common/types/jwt-user.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 import { LeaveService } from '../leave/leave.service.js';
 import {
+  contextFingerprint,
   describeRules,
   floorFromFlags,
   type DecisionFlag,
+  type Facts,
 } from '../leave/leave-decision-context.js';
 
 export type Verdict = 'APPROVE' | 'REVIEW' | 'REJECT';
@@ -50,6 +53,7 @@ export class LeaveRecommendationService {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
     private readonly leave: LeaveService,
   ) {
     const apiKey = config.get<string>('GROQ_API_KEY');
@@ -58,22 +62,54 @@ export class LeaveRecommendationService {
       : null;
   }
 
-  async recommendForQueue(user: JwtUser): Promise<LeaveRecommendation[]> {
-    if (!this.client) {
-      throw new ServiceUnavailableException('The assistant is not configured.');
-    }
-
+  /**
+   * @param force re-analyse requests whose stored advice is still valid.
+   *
+   * Without it, a request already analysed on the same facts costs nothing:
+   * the stored row is returned and no upstream call is made. That is what
+   * makes leaving the screen and coming back free, and it is most of the
+   * value on a tier capped by tokens per minute.
+   */
+  async recommendForQueue(user: JwtUser, force = false): Promise<LeaveRecommendation[]> {
     const queue = await this.leave.pendingFor(user, {
       page: 1, limit: 25, skip: 0,
     } as never);
 
     if (queue.data.length === 0) return [];
 
+    const stored = new Map(
+      queue.data
+        .filter((r) => r.recommendation)
+        .map((r) => [r.id, r.recommendation!]),
+    );
+
+    // Still about the same situation, so still the same advice.
+    const reusable = force
+      ? []
+      : queue.data.filter((r) => r.recommendation && !r.recommendation.stale);
+    const reuseIds = new Set(reusable.map((r) => r.id));
+    const pending = queue.data.filter((r) => !reuseIds.has(r.id));
+
+    const cached: LeaveRecommendation[] = reusable.map((r) => ({
+      requestId: r.id,
+      verdict: stored.get(r.id)!.verdict,
+      confidence: stored.get(r.id)!.confidence,
+      reason: stored.get(r.id)!.reason,
+      basis: stored.get(r.id)!.basis,
+      ...(stored.get(r.id)!.adjusted ? { adjusted: stored.get(r.id)!.adjusted } : {}),
+    }));
+
+    if (pending.length === 0) return cached;
+
+    if (!this.client) {
+      throw new ServiceUnavailableException('The assistant is not configured.');
+    }
+
     // Everything the model sees is already computed by the rules engine.
     // It weighs facts; it does not produce them.
     const floors = new Map<number, ReturnType<typeof floorFromFlags>>();
 
-    const cases = queue.data.map((r) => {
+    const cases = pending.map((r) => {
       const d = r.decision;
       // Decided here, in code, from the rules that fired. The model is asked
       // to explain the case; it is not asked whether the rules apply.
@@ -126,10 +162,12 @@ export class LeaveRecommendationService {
 
       const raw = response.choices[0].message.content ?? '{}';
       const parsed = JSON.parse(raw) as { recommendations?: unknown[] };
-      return this.reconcile(
+      const produced = this.reconcile(
         this.validate(parsed.recommendations ?? [], cases.map((c) => c.id)),
         floors,
       );
+      await this.persist(produced, pending, user);
+      return [...cached, ...produced];
     } catch (err) {
       if (err instanceof SyntaxError) {
         this.logger.error('Model returned unparseable JSON');
@@ -181,6 +219,53 @@ export class LeaveRecommendationService {
           : [],
       }];
     });
+  }
+
+  /**
+   * Writes the advice against the request it is about.
+   *
+   * `factsHash` is stored with it so a later read can tell whether the
+   * situation has moved. The model name goes in too — advice from a
+   * different model is not the same advice, and swapping AI_MODEL should
+   * not leave the queue showing yesterday's reasoning as if it were
+   * current.
+   */
+  private async persist(
+    recommendations: LeaveRecommendation[],
+    requests: { id: number; reason: string; decision: Facts }[],
+    user: JwtUser,
+  ) {
+    const factsFor = new Map(requests.map((r) => [r.id, r]));
+    const model = this.config.getOrThrow<string>('AI_MODEL');
+
+    await this.prisma.$transaction(
+      recommendations.flatMap((rec) => {
+        const request = factsFor.get(rec.requestId);
+        if (!request) return [];
+
+        const row = {
+          verdict: rec.verdict,
+          confidence: rec.confidence,
+          reason: rec.reason,
+          basis: rec.basis,
+          adjusted: rec.adjusted ?? null,
+          model,
+          factsHash: contextFingerprint(request.decision, request.reason),
+          generatedBy: user.sub,
+          generatedAt: new Date(),
+        };
+
+        // One row per request: re-analysing replaces the advice rather than
+        // accumulating opinions nobody will read.
+        return [
+          this.prisma.leaveRecommendation.upsert({
+            where: { leaveRequestId: rec.requestId },
+            create: { leaveRequestId: rec.requestId, ...row },
+            update: row,
+          }),
+        ];
+      }),
+    );
   }
 
   /**

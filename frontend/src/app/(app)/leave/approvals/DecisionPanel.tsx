@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import {
-  ChevronDown, CircleAlert, CircleCheck, Info, Scale, Sparkles, TriangleAlert,
+  ChevronDown, CircleAlert, CircleCheck, History, Info, Scale, Sparkles,
+  TriangleAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { formatRelative } from '@/lib/format';
 import type { DecisionContext, DecisionFlag } from '@/types';
-import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
+import type { StoredRecommendation } from '@/types';
 import { agreementOf, summarise, type Agreement, type Verdict } from './verdict';
 
 const VERDICT: Record<Verdict, { icon: typeof Info; wrap: string; text: string }> = {
@@ -75,7 +77,7 @@ export function DecisionPanel({
   ctx, rec,
 }: {
   ctx: DecisionContext;
-  rec?: LeaveRecommendation;
+  rec?: StoredRecommendation | null;
 }) {
   const [open, setOpen] = useState(false);
   const s = summarise(ctx);
@@ -106,6 +108,19 @@ export function DecisionPanel({
 
           {rec && (
             <p className="mt-1.5 text-body leading-snug text-content-primary">{rec.reason}</p>
+          )}
+
+          {/* Advice is kept between visits so it need not be paid for
+              twice, which makes saying when it stopped matching the
+              situation part of the bargain. */}
+          {rec?.stale && (
+            <p className="mt-2 flex items-start gap-1.5 rounded-md bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-2 py-1.5 text-caption text-warning">
+              <History size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
+              <span>
+                The figures have changed since this was written
+                {' '}({formatRelative(rec.generatedAt)}). Re-analyse for current advice.
+              </span>
+            </p>
           )}
 
           {/* An override is shown rather than silently applied: the reviewer
@@ -220,7 +235,7 @@ export function DecisionPanel({
             {rec && rec.basis.length > 0 && (
               <div className="border-t border-line-subtle px-3.5 py-2.5">
                 <p className="text-caption font-medium text-content-tertiary">
-                  What the assistant looked at
+                  What the assistant looked at · {formatRelative(rec.generatedAt)}
                 </p>
                 <ul className="mt-1.5 flex flex-wrap gap-1.5">
                   {rec.basis.map((b, i) => (

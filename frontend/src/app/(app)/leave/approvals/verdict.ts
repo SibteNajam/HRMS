@@ -1,5 +1,5 @@
 import type { DecisionContext, DecisionFlag } from '@/types';
-import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
+import type { AiRecommendation } from '@/types';
 
 export type Verdict = 'blocked' | 'check' | 'clear';
 
@@ -135,13 +135,13 @@ function factsFrom(ctx: DecisionContext): Fact[] {
 export type Agreement = 'agrees' | 'stricter' | 'softer';
 
 const RULES_RANK: Record<Verdict, number> = { clear: 0, check: 1, blocked: 2 };
-const AI_RANK: Record<LeaveRecommendation['verdict'], number> = {
+const AI_RANK: Record<AiRecommendation['verdict'], number> = {
   APPROVE: 0, REVIEW: 1, REJECT: 2,
 };
 
 export function agreementOf(
   verdict: Verdict,
-  rec: LeaveRecommendation | undefined,
+  rec: AiRecommendation | null | undefined,
 ): Agreement | null {
   if (!rec) return null;
   const mine = RULES_RANK[verdict];
@@ -160,7 +160,7 @@ export function agreementOf(
  */
 export function queueOrder(
   verdict: Verdict,
-  rec: LeaveRecommendation | undefined,
+  rec: AiRecommendation | null | undefined,
 ): number {
   const group = (2 - RULES_RANK[verdict]) * 10;
   const agreement = agreementOf(verdict, rec);

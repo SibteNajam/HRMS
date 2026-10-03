@@ -11,7 +11,7 @@ import { formatRelative } from '@/lib/format';
 import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useReviewLeaveRequestMutation } from '@/store/api/endpoints/leaveApi';
 import type { LeaveRequest } from '@/types';
-import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
+import type { StoredRecommendation } from '@/types';
 import { DecisionPanel } from './DecisionPanel';
 import { RejectDialog } from './RejectDialog';
 import { summarise, type Verdict } from './verdict';
@@ -34,7 +34,7 @@ export function ApprovalCard({
   request, recommendation,
 }: {
   request: LeaveRequest;
-  recommendation?: LeaveRecommendation;
+  recommendation?: StoredRecommendation | null;
 }) {
   const [review, { isLoading }] = useReviewLeaveRequestMutation();
   const [rejecting, setRejecting] = useState(false);

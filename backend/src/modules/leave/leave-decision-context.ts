@@ -23,6 +23,8 @@
  * No prompt is edited and no AI code is touched.
  */
 
+import { createHash } from 'node:crypto';
+
 export const THRESHOLDS = {
   /** Report §8 names 80% explicitly. */
   LOW_ATTENDANCE_PCT: 80,
@@ -375,4 +377,41 @@ export function floorFromFlags(flags: DecisionFlag[]): 'APPROVE' | 'REVIEW' | 'R
   if (weights.includes('blocking')) return 'REJECT';
   if (weights.includes('concern')) return 'REVIEW';
   return 'APPROVE';
+}
+
+
+/**
+ * A fingerprint of the facts a recommendation was given on.
+ *
+ * Stored advice saves an API call, but only while it is still about the
+ * same situation. When a colleague's leave is approved, an absence is
+ * recorded, or the balance moves, this stops matching and the advice is
+ * marked stale rather than standing quietly on figures that have changed.
+ *
+ * Only values a rule actually reads go in. A field nothing depends on must
+ * not invalidate advice that is still correct.
+ */
+export function contextFingerprint(ctx: Facts, reason: string): string {
+  const material = [
+    ctx.attendance.percentage,
+    ctx.attendance.previousPercentage,
+    ctx.attendance.lateCount,
+    ctx.attendance.absentDays,
+    ctx.attendance.workingDays,
+    ctx.balance.allocated,
+    ctx.balance.used,
+    ctx.balance.remaining,
+    ctx.balance.afterApproval,
+    ctx.history.daysTakenThisYear,
+    ctx.history.requestsThisYear,
+    ctx.history.rejectedThisYear,
+    ctx.history.tenureMonths,
+    ctx.coverage.departmentSize,
+    ctx.coverage.othersOffInRange,
+    ctx.coverage.designation,
+    ctx.coverage.sameRoleSize,
+    ctx.coverage.sameRoleOff,
+    reason.trim(),
+  ];
+  return createHash('sha1').update(JSON.stringify(material)).digest('hex');
 }

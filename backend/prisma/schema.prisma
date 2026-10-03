@@ -45,6 +45,18 @@ enum LeaveRequestStatus {
   CANCELLED
 }
 
+enum RecommendationVerdict {
+  APPROVE
+  REVIEW
+  REJECT
+}
+
+enum RecommendationConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
 enum PayrollRunStatus {
   DRAFT
   FINALISED
@@ -236,13 +248,46 @@ model LeaveRequest {
   reviewNote  String?            @map("review_note") @db.VarChar(255)
   createdAt   DateTime           @default(now()) @map("created_at")
 
-  employee  Employee  @relation(fields: [employeeId], references: [id])
-  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
-  reviewer  User?     @relation("LeaveReviewer", fields: [reviewedBy], references: [id])
+  employee       Employee             @relation(fields: [employeeId], references: [id])
+  leaveType      LeaveType            @relation(fields: [leaveTypeId], references: [id])
+  reviewer       User?                @relation("LeaveReviewer", fields: [reviewedBy], references: [id])
+  recommendation LeaveRecommendation?
 
   @@index([status])
   @@index([employeeId, status])
   @@map("leave_requests")
+}
+
+/// The assistant's advice on one pending request.
+///
+/// Stored rather than held in the browser so leaving the screen and coming
+/// back does not mean paying for the same analysis twice — the free tier is
+/// capped on tokens per minute, and the advice does not change unless the
+/// facts behind it do.
+///
+/// `factsHash` is what makes that safe. It fingerprints the decision context
+/// the advice was given on; when a colleague's leave is approved or an
+/// absence is recorded, the hash stops matching and the advice is shown as
+/// stale instead of quietly standing on figures that have moved.
+model LeaveRecommendation {
+  id             Int                      @id @default(autoincrement())
+  leaveRequestId Int                      @unique @map("leave_request_id")
+  verdict        RecommendationVerdict
+  confidence     RecommendationConfidence
+  reason         String                   @db.VarChar(500)
+  /// The facts cited, so a reviewer can check the reasoning against the record.
+  basis          Json?
+  /// Set when the rules engine overrode what the model proposed.
+  adjusted       String?                  @db.VarChar(255)
+  /// Advice from a different model is not the same advice.
+  model          String                   @db.VarChar(80)
+  factsHash      String                   @map("facts_hash") @db.Char(40)
+  generatedBy    Int                      @map("generated_by")
+  generatedAt    DateTime                 @default(now()) @map("generated_at")
+
+  request LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+
+  @@map("leave_recommendations")
 }
 
 // ─── Payroll ────────────────────────────────────────────────────────────

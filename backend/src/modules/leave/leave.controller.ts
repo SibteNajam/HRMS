@@ -76,6 +76,10 @@ export class LeaveController {
    * is capped on tokens per minute, and a queue of twenty cards would
    * otherwise be twenty round trips.
    *
+   * Advice already stored against a request is reused unless the facts
+   * behind it have moved, so revisiting the screen costs nothing. `force`
+   * re-analyses regardless, for a reviewer who wants a second opinion.
+   *
    * This returns advice. It cannot approve anything — the approve endpoint
    * is a separate route a human has to click.
    */
@@ -83,8 +87,11 @@ export class LeaveController {
   @HttpCode(HttpStatus.OK)
   @Roles(...HR_AND_ABOVE)
   @Throttle({ default: { limit: 6, ttl: 60_000 } })
-  recommendations(@CurrentUser() user: JwtUser) {
-    return this.recommender.recommendForQueue(user);
+  recommendations(
+    @CurrentUser() user: JwtUser,
+    @Query('force') force?: string,
+  ) {
+    return this.recommender.recommendForQueue(user, force === 'true');
   }
 
   @Get('requests/pending/count')

@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowDownNarrowWide, Inbox, ShieldCheck, Sparkles } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -10,7 +9,6 @@ import { getErrorMessage } from '@/lib/getErrorMessage';
 import {
   useGetLeaveRecommendationsMutation,
   useGetPendingLeaveRequestsQuery,
-  type LeaveRecommendation,
 } from '@/store/api/endpoints/leaveApi';
 import { useAppSelector } from '@/store/hooks';
 import { ApprovalCard } from './ApprovalCard';
@@ -19,21 +17,26 @@ import { agreementOf, queueOrder, summarise, type Verdict } from './verdict';
 
 export default function ApprovalsPage() {
   const me = useAppSelector((s) => s.auth.user)!;
-  const [recommendations, setRecommendations] = useState<LeaveRecommendation[]>([]);
   const [analyse, { isLoading: analysing }] = useGetLeaveRecommendationsMutation();
 
-  // One call for the whole queue rather than one per card — the free tier is
-  // capped on tokens per minute, and twenty cards would be twenty round trips.
-  async function runAnalysis() {
+  /**
+   * @param force re-analyse requests whose stored advice is still valid.
+   *
+   * Nothing is held in component state. The advice lives against the
+   * request, so the queue is refetched and it arrives with everything else
+   * — which is why navigating away and back no longer loses it, and why a
+   * request already analysed on the same facts costs nothing to show again.
+   */
+  async function runAnalysis(force = false) {
     try {
-      setRecommendations(await analyse().unwrap());
-      toast.success('Queue analysed');
+      const produced = await analyse({ force }).unwrap();
+      toast.success(
+        produced.length ? `Analysed ${produced.length} request${produced.length === 1 ? '' : 's'}` : 'Nothing to analyse',
+      );
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   }
-
-  const byRequest = new Map(recommendations.map((r) => [r.requestId, r]));
 
   const { data, isLoading, isError } = useGetPendingLeaveRequestsQuery(
     { limit: 50 },
@@ -49,7 +52,7 @@ export default function ApprovalsPage() {
     const verdict: Verdict = request.decision
       ? summarise(request.decision).verdict
       : 'clear';
-    const recommendation = byRequest.get(request.id);
+    const recommendation = request.recommendation ?? null;
     return {
       request,
       recommendation,
@@ -63,6 +66,13 @@ export default function ApprovalsPage() {
   // ready — and within each group, the ones where the assistant disagrees
   // with the flags, because those are the ones worth reading.
   const ordered = [...assessed].sort((a, b) => a.order - b.order);
+
+  // Advice that exists and still matches the facts. Anything else is work
+  // the assistant has not done yet, or has done on figures that have moved.
+  const analysed = assessed.filter((a) => a.recommendation).length;
+  const needing = assessed.filter(
+    (a) => !a.recommendation || a.recommendation.stale,
+  ).length;
 
   const scope =
     me.role === 'ADMIN'
@@ -80,9 +90,16 @@ export default function ApprovalsPage() {
               variant="primary"
               icon={Sparkles}
               loading={analysing}
-              onClick={runAnalysis}
+              // Nothing left to analyse means the only useful action is a
+              // deliberate second opinion, so the button forces one rather
+              // than appearing to do nothing.
+              onClick={() => runAnalysis(needing === 0)}
             >
-              {recommendations.length ? 'Re-analyse queue' : 'Analyse with AI'}
+              {needing === 0 && analysed > 0
+                ? 'Re-analyse queue'
+                : analysed > 0
+                  ? `Analyse ${needing} more`
+                  : 'Analyse with AI'}
             </Button>
           ) : undefined
         }
@@ -96,11 +113,11 @@ export default function ApprovalsPage() {
       )}
 
       {!isLoading && !!data?.data.length && (
-        <QueueSummary rows={assessed} analysed={!!recommendations.length} />
+        <QueueSummary rows={assessed} analysed={analysed > 0} />
       )}
 
       {/* Said once, here, rather than repeated on every card. */}
-      {!!recommendations.length && !analysing && (
+      {analysed > 0 && !analysing && (
         <p className="mb-5 flex items-center gap-2 text-body-sm text-content-tertiary">
           <Sparkles size={14} strokeWidth={2} aria-hidden />
           Advice only — the decision and the record are yours. Figures on each

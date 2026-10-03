@@ -297,6 +297,51 @@ Change these before any public demo.
 
 ---
 
+## Working with someone else on this
+
+### After every `git pull`
+
+```bash
+cd backend && npm install && npm run db:sync
+cd ../frontend && npm install
+```
+
+`db:sync` is the one to remember. It does two things:
+
+1. **`prisma migrate deploy`** — runs any migration files that are in the
+   repo but not yet in your database, in order. Already applied ones are
+   skipped, so running it when there is nothing new is safe and does
+   nothing.
+2. **`prisma generate`** — rewrites the TypeScript client from the schema,
+   so new tables and columns appear in autocomplete and typecheck.
+
+Skipping it is the usual cause of *"Property 'leaveRecommendation' does not
+exist"* or a `P2021: table does not exist` at runtime: the code was pulled,
+the database was not.
+
+### Which command, when
+
+| You want to | Command | What it does |
+|---|---|---|
+| Catch up after pulling | `npm run db:sync` | Applies new migrations. **Never deletes data.** |
+| Change the schema yourself | `npm run db:migrate` | Writes a new migration file from your `schema.prisma` edits, then applies it |
+| Start completely fresh | `npm run db:reset` | **Drops everything**, re-runs all migrations, re-seeds |
+| Look at the data | `npm run db:studio` | Opens a browser table editor |
+
+Only the person *making* a schema change runs `db:migrate`. It creates a file
+under `backend/prisma/migrations/`, which is committed like any other code.
+Everyone else just runs `db:sync` after pulling — they never write migrations
+by hand and never edit the SQL.
+
+### Your own `.env` is never shared
+
+`.env` is gitignored on purpose: it holds the database password, the JWT
+secret and the API keys. A new person copies `.env.example`, fills in their
+own MySQL password and their own API key, and works from that. Nothing in it
+comes from the repo.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -309,3 +354,6 @@ Change these before any public demo.
 | App Passwords option missing in Google | 2-Step Verification is off | Turn it on, then retry |
 | Emails never arrive | `MAIL_DRY_RUN=true` | Expected. Set `false` to actually send |
 | CORS error in browser | `FRONTEND_URL` mismatch | Must equal the Next.js origin exactly (`http://localhost:3001`) |
+| `P2021: table does not exist` | Pulled code without applying migrations | `npm run db:sync` |
+| `Property '…' does not exist` on `prisma.` | Client not regenerated after a schema change | `npm run db:sync` |
+| `P3009: migrate found failed migrations` | A migration half-applied | `npm run db:reset` on a local database — it drops everything |

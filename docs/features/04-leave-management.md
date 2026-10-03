@@ -99,6 +99,8 @@ All in `leave-decision-context.ts`, all constants:
 | `INSUFFICIENT_BALANCE` | approval would take the balance below zero |
 | `TEAM_COVERAGE` | **40%+** of the department already off in the range |
 | `ROLE_UNCOVERED` | everyone else with the **same job title** is off across these dates |
+| `PROJECT_UNDERSTAFFED` | approving would take a project team below its **minimum staffing** |
+| `PROJECT_ROLE_UNCOVERED` | everyone else doing this job **on a project team** is off |
 | `THIN_REASON` | reason under 25 characters |
 | `NEW_JOINER` | under 3 months' tenure |
 

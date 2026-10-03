@@ -51,6 +51,38 @@ export interface DecisionFlag {
   detail: string;
 }
 
+/**
+ * One project team this person belongs to, measured across the dates they
+ * asked for.
+ *
+ * Leave used to be judged on the individual and their department. A project
+ * team is the unit the work actually depends on: a request that is fine for
+ * the person and fine for the department can still be the one that leaves a
+ * project unable to run.
+ */
+export interface TeamStaffing {
+  project: string;
+  team: string;
+  /** How many must remain available. Set per team by HR. */
+  minimumStaff: number;
+  teamSize: number;
+  /** Team members already on approved leave overlapping these dates. */
+  alreadyOff: number;
+  offNames: string[];
+  /** Members still available if this request is approved. */
+  availableIfApproved: number;
+  /** What this person does on this team — "Backend Engineer". */
+  roleOnTeam: string;
+  /** How many on the team hold that same role, including this person. */
+  sameRoleSize: number;
+  sameRoleOff: number;
+  sameRoleOffNames: string[];
+}
+
+export interface StaffingContext {
+  teams: TeamStaffing[];
+}
+
 export interface DecisionContext {
   attendance: {
     windowDays: number;
@@ -76,6 +108,8 @@ export interface DecisionContext {
     rejectedThisYear: number;
     tenureMonths: number;
   };
+  /** Project commitments across the requested dates. Empty when unassigned. */
+  staffing: StaffingContext;
   coverage: {
     departmentSize: number;
     othersOffInRange: number;
@@ -121,7 +155,11 @@ export interface DecisionRule {
   describe(input: RuleInput): { label: string; detail: string };
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** Enough English for the handful of words these flags use. */
+const PLURALS: Record<string, string> = { person: 'people' };
+
+const plural = (n: number, word: string) =>
+  `${n} ${n === 1 ? word : (PLURALS[word] ?? `${word}s`)}`;
 
 export const DECISION_RULES: DecisionRule[] = [
   {
@@ -195,6 +233,69 @@ export const DECISION_RULES: DecisionRule[] = [
           ? ` — ${ctx.coverage.othersOffNames.join(', ')}.`
           : '.'),
     }),
+  },
+  {
+    code: 'PROJECT_UNDERSTAFFED',
+    level: 'danger',
+    weight: 'concern',
+    meaning:
+      'Approving would take a project team below the minimum HR set for it. ' +
+      'The minimum is the number that has to be there for the work to run, ' +
+      'so going under it is a scheduling decision rather than a leave one.',
+    applies: ({ ctx }) =>
+      ctx.staffing.teams.some((t) => t.availableIfApproved < t.minimumStaff),
+    describe: ({ ctx }) => {
+      // The worst breach, when more than one team is affected: it is the
+      // one that decides whether this can go ahead.
+      const breached = ctx.staffing.teams
+        .filter((t) => t.availableIfApproved < t.minimumStaff)
+        .sort(
+          (a, b) =>
+            a.availableIfApproved - a.minimumStaff -
+            (b.availableIfApproved - b.minimumStaff),
+        );
+      const worst = breached[0];
+      return {
+        label: `${worst.project} · ${worst.team} below minimum`,
+        detail:
+          `Approving leaves ${plural(worst.availableIfApproved, 'person')} available ` +
+          `of ${worst.teamSize}, and this team needs ${worst.minimumStaff}. ` +
+          (worst.offNames.length
+            ? `Already off across these dates: ${worst.offNames.join(', ')}.`
+            : 'Nobody else is off; the team is simply too small for this absence.') +
+          (breached.length > 1
+            ? ` ${breached.length - 1} other team${breached.length === 2 ? ' is' : 's are'} also affected.`
+            : ''),
+      };
+    },
+  },
+  {
+    code: 'PROJECT_ROLE_UNCOVERED',
+    level: 'warning',
+    weight: 'concern',
+    meaning:
+      'Everyone else doing this job on a project team is already off across ' +
+      'these dates. The headcount may still be fine while the particular ' +
+      'skill is not there.',
+    applies: ({ ctx }) =>
+      ctx.staffing.teams.some(
+        (t) => t.sameRoleSize > 1 && t.sameRoleOff >= t.sameRoleSize - 1,
+      ),
+    describe: ({ ctx }) => {
+      const t = ctx.staffing.teams.find(
+        (x) => x.sameRoleSize > 1 && x.sameRoleOff >= x.sameRoleSize - 1,
+      )!;
+      const others = t.sameRoleSize - 1;
+      const who = t.sameRoleOffNames.join(', ');
+      return {
+        label: `No other ${t.roleOnTeam} on ${t.project}`,
+        detail:
+          (others === 1
+            ? `${who} is the only other ${t.roleOnTeam} on ${t.project} · ${t.team}, and is already off across these dates.`
+            : `${t.sameRoleOff} of the other ${others} ${t.roleOnTeam}s on ${t.project} · ${t.team} are already off — ${who}.`) +
+          ' Approving would leave that work with nobody on it.',
+      };
+    },
   },
   {
     code: 'ROLE_UNCOVERED',
@@ -414,4 +515,56 @@ export function contextFingerprint(ctx: Facts, reason: string): string {
     reason.trim(),
   ];
   return createHash('sha1').update(JSON.stringify(material)).digest('hex');
+}
+
+
+// ─── Deciding without a person ──────────────────────────────────────────
+
+/**
+ * Whether a request can go through with no human in the loop.
+ *
+ * Exactly when nothing is wrong: no blocking rule, and no rule anybody
+ * decided a person should weigh. It reuses the same weights the
+ * recommendation floor uses, so the two can never drift apart — and adding
+ * a `concern` rule tomorrow stops it auto-approving tomorrow, with no other
+ * edit.
+ *
+ * Note what this is NOT: a model is not consulted. The decision is made by
+ * the rules in this file, which are reproducible and can be explained to
+ * the employee afterwards. The assistant's part is writing the sentence.
+ */
+export function autoApprovable(hits: RuleHit[]): boolean {
+  return verdictFloor(hits) === 'APPROVE';
+}
+
+/** The note HR reads on an automatically approved request. */
+export function autoApprovalNote(ctx: Facts, leaveTypeName: string): string {
+  const parts: string[] = [];
+
+  parts.push(
+    ctx.balance.allocated > 0
+      ? `${ctx.balance.remaining} days of ${leaveTypeName} leave remaining, ${ctx.balance.afterApproval} after this`
+      : `${leaveTypeName} leave has no quota`,
+  );
+
+  if (ctx.attendance.percentage !== null) {
+    parts.push(`attendance ${ctx.attendance.percentage.toFixed(0)}%`);
+  }
+
+  for (const t of ctx.staffing.teams) {
+    parts.push(
+      `${t.project} · ${t.team} keeps ${t.availableIfApproved} of ${t.teamSize} ` +
+        `available against a minimum of ${t.minimumStaff}`,
+    );
+  }
+
+  if (ctx.staffing.teams.length === 0 && ctx.coverage.departmentSize > 1) {
+    parts.push(
+      ctx.coverage.othersOffInRange === 0
+        ? 'nobody else in the department is off'
+        : `${ctx.coverage.othersOffInRange} of ${ctx.coverage.departmentSize} in the department are off`,
+    );
+  }
+
+  return `Approved automatically — ${parts.join('; ')}.`;
 }

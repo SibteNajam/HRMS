@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { CalendarDays, CalendarPlus, CircleCheck, CircleMinus, CircleX, Clock } from 'lucide-react';
+import { CalendarDays, CalendarPlus, CircleCheck, CircleMinus, CircleX, Clock, Bot } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -133,6 +133,12 @@ export default function MyLeavePage() {
                       {r.status === 'REJECTED' && r.reviewNote && (
                         <p className="mt-1.5 max-w-[340px] text-caption leading-snug text-content-secondary">
                           “{r.reviewNote}”
+                        </p>
+                      )}
+                      {r.autoApproved && (
+                        <p className="mt-1.5 inline-flex items-center gap-1 text-caption text-content-tertiary">
+                          <Bot size={12} strokeWidth={2} aria-hidden />
+                          Approved automatically — balance and team cover were clear
                         </p>
                       )}
                     </td>

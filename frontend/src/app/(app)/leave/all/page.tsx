@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CircleCheck, CircleMinus, CircleX, Clock, Inbox, Search } from 'lucide-react';
+import { CircleCheck, CircleMinus, CircleX, Clock, Inbox, Search, Bot } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -111,9 +111,26 @@ export default function AllRequestsPage() {
                             “{r.reviewNote}”
                           </p>
                         )}
+                        {/* Nothing goes through unexplained: an automatic
+                            approval shows the figures it was decided on. */}
+                        {r.autoApproved && r.autoDecisionNote && (
+                          <p className="mt-1 max-w-[320px] text-caption leading-snug text-content-tertiary">
+                            {r.autoDecisionNote}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
-                        {reviewer ? (
+                        {r.autoApproved ? (
+                          <>
+                            <span className="inline-flex items-center gap-1 text-body-sm font-medium text-brand">
+                              <Bot size={13} strokeWidth={2} aria-hidden />
+                              Automatic
+                            </span>
+                            <p className="text-caption text-content-tertiary">
+                              {r.reviewedAt ? formatRelative(r.reviewedAt) : ''}
+                            </p>
+                          </>
+                        ) : reviewer ? (
                           <>
                             <p className="text-body-sm text-content-primary">{reviewer}</p>
                             <p className="text-caption text-content-tertiary">

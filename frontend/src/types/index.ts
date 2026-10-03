@@ -122,6 +122,10 @@ export interface LeaveRequest {
   createdAt: string;
   /** Present on the approvals queue only — everything needed to decide. */
   decision?: DecisionContext;
+  /** Approved by the rules engine with no human in the loop. */
+  autoApproved?: boolean;
+  /** Why it went through on its own, in the words HR reads. */
+  autoDecisionNote?: string | null;
   /**
    * Stored AI advice, carried with the queue so revisiting the screen
    * neither loses it nor pays for it again. Null until somebody runs the
@@ -151,6 +155,61 @@ export interface StoredRecommendation extends AiRecommendation {
    */
   stale: boolean;
   generatedAt: string;
+}
+
+/** One project team this person is on, measured across the requested dates. */
+export interface TeamStaffing {
+  project: string;
+  team: string;
+  /** How many must remain available. Set per team by HR. */
+  minimumStaff: number;
+  teamSize: number;
+  alreadyOff: number;
+  offNames: string[];
+  /** Members still available if this request is approved. */
+  availableIfApproved: number;
+  roleOnTeam: string;
+  sameRoleSize: number;
+  sameRoleOff: number;
+  sameRoleOffNames: string[];
+}
+
+export interface StaffingContext {
+  teams: TeamStaffing[];
+}
+
+export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'COMPLETED';
+
+export interface ProjectTeamMember {
+  id: number;
+  employeeId: number;
+  employeeCode: string;
+  name: string;
+  roleOnTeam: string;
+  offToday: boolean;
+}
+
+export interface ProjectTeam {
+  id: number;
+  name: string;
+  /** The number HR sets: how many must stay available. */
+  minimumStaff: number;
+  department: { id: number; name: string } | null;
+  size: number;
+  offToday: number;
+  availableToday: number;
+  /** Negative means the team is already under its minimum. */
+  headroomToday: number;
+  members: ProjectTeamMember[];
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  code: string;
+  description: string | null;
+  status: ProjectStatus;
+  teams: ProjectTeam[];
 }
 
 export type FlagLevel = 'info' | 'warning' | 'danger';
@@ -190,6 +249,8 @@ export interface DecisionContext {
     rejectedThisYear: number;
     tenureMonths: number;
   };
+  /** Project commitments across the requested dates. Empty when unassigned. */
+  staffing: StaffingContext;
   coverage: {
     departmentSize: number;
     othersOffInRange: number;

@@ -93,6 +93,24 @@ function factsFrom(ctx: DecisionContext): Fact[] {
           : 'default',
   });
 
+  // A project team is the sharpest version of the cover question: it is the
+  // group whose work actually stops. It wins over the department figure
+  // whenever the person is on one.
+  const tightest = [...ctx.staffing.teams].sort(
+    (a, b) =>
+      a.availableIfApproved - a.minimumStaff - (b.availableIfApproved - b.minimumStaff),
+  )[0];
+
+  if (tightest) {
+    const headroom = tightest.availableIfApproved - tightest.minimumStaff;
+    facts.push({
+      label: `${tightest.project} · ${tightest.team}`,
+      value: `${tightest.availableIfApproved} of ${tightest.teamSize} left, needs ${tightest.minimumStaff}`,
+      tone: headroom < 0 ? 'danger' : headroom === 0 ? 'warning' : 'default',
+    });
+    return facts;
+  }
+
   // Role cover is the sharper question when there is a job title to cover:
   // two backend engineers in a team of twelve reads as well staffed right
   // up until the other one is off.

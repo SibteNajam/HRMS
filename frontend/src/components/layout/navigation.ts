@@ -1,4 +1,5 @@
 import {
+  FolderKanban,
   LayoutDashboard, CalendarCheck, ClipboardList, Clock, PenLine, PartyPopper,
   CalendarDays, Inbox, CalendarPlus, CheckCheck, Gauge, FileSliders, CalendarRange,
   Wallet, Play, FileText, Layers, Receipt, HandCoins,
@@ -84,6 +85,8 @@ export const NAV: NavGroup[] = [
         { label: 'Designations', path: '/employees/designations', roles: ADMIN, icon: BadgeCheck },
         { label: 'Add Employee', path: '/employees/new', roles: HR_UP, icon: UserPlus },
       ]},
+
+      { label: 'Projects', path: '/projects', roles: HR_UP, icon: FolderKanban },
 
       { label: 'Recruitment', icon: UserPlus, roles: HR_UP, children: [
         { label: 'Job Postings', path: '/recruitment', roles: HR_UP, icon: Briefcase },

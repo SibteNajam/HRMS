@@ -23,7 +23,8 @@ import type { CreateLeaveRequestDto } from './dto/create-leave-request.dto.js';
 import type { ReviewLeaveRequestDto } from './dto/review-leave-request.dto.js';
 import type { ListLeaveDto } from './dto/list-leave.dto.js';
 import {
-  buildFlags, contextFingerprint, THRESHOLDS,
+  autoApprovable, autoApprovalNote, buildFlags, contextFingerprint,
+  evaluateRules, THRESHOLDS,
   type DecisionContext,
 } from './leave-decision-context.js';
 
@@ -256,8 +257,54 @@ export class LeaveService {
       include: REQUEST_INCLUDE,
     });
 
+    // Everything checked, nothing flagged: let it through without making a
+    // person click a button. Anything a rule raises falls back to the queue.
+    const auto = await this.tryAutoApprove(request.id, user.role);
+    if (auto) return auto;
+
     await this.notifyApprovers(request.id, user, days, leaveType.name);
     return request;
+  }
+
+  /**
+   * Approve without a human, when and only when no rule objects.
+   *
+   * The decision is made by the rules in `leave-decision-context.ts` — the
+   * balance, the attendance thresholds, the project minimums — all of which
+   * are reproducible and can be explained to the employee afterwards. No
+   * model is consulted. The assistant writes sentences about leave; it does
+   * not grant it.
+   *
+   * Returns null when the request should wait for a person, which is every
+   * case where something was flagged. A machine declining somebody's leave
+   * outright is the one outcome deliberately not built here: "not approved
+   * yet" is a queue, "rejected" is a decision.
+   */
+  private async tryAutoApprove(requestId: number, asRole: Role) {
+    if (!this.config.get<boolean>('LEAVE_AUTO_APPROVAL')) return null;
+
+    const request = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id: requestId },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true,
+          user: { select: { id: true } } } },
+        leaveType: { select: { name: true, annualQuota: true } },
+      },
+    });
+
+    const { flags: _flags, ...facts } = await this.decisionContext(requestId);
+    const hits = evaluateRules(facts, request.reason);
+    if (!autoApprovable(hits)) return null;
+
+    const note = autoApprovalNote(facts, request.leaveType.name);
+
+    // Reuses the ordinary approval path: the same balance deduction, the
+    // same ON_LEAVE attendance, the same notification. An automatic
+    // approval must not be a second way of approving things.
+    const approved = await this.approve(null, request, asRole, note);
+
+    this.logger.log(`Leave ${requestId} approved automatically — ${note}`);
+    return approved;
   }
 
   // ── Reading ─────────────────────────────────────────────────────────
@@ -430,13 +477,22 @@ export class LeaveService {
     return this.approve(user, request, requesterRole);
   }
 
+  /**
+   * @param user the reviewer, or null when the rules engine decided it.
+   * @param autoNote why it went through on its own, for HR to read.
+   *
+   * One approval path, two ways in. A separate automatic path would be a
+   * second place to forget the balance deduction or the ON_LEAVE
+   * attendance, and the two would drift.
+   */
   private async approve(
-    user: JwtUser,
+    user: JwtUser | null,
     request: { id: number; employeeId: number; leaveTypeId: number; days: Prisma.Decimal;
       startDate: Date; endDate: Date;
       employee: { firstName: string; lastName: string; user: { id: number } | null };
       leaveType: { name: string; annualQuota: number } },
     requesterRole: Role,
+    autoNote?: string,
   ) {
     const days = Number(request.days);
     const year = request.startDate.getUTCFullYear();
@@ -473,8 +529,12 @@ export class LeaveService {
         where: { id: request.id },
         data: {
           status: 'APPROVED',
-          reviewedBy: user.sub,
+          // Null reviewer and autoApproved together are what mark a
+          // decision nobody made by hand.
+          reviewedBy: user?.sub ?? null,
           reviewedAt: new Date(),
+          autoApproved: !user,
+          autoDecisionNote: autoNote ?? null,
         },
         include: REQUEST_INCLUDE,
       });
@@ -508,7 +568,9 @@ export class LeaveService {
             userId: request.employee.user.id,
             type: 'LEAVE',
             title: 'Leave approved',
-            body: `Your ${request.leaveType.name} leave for ${days} day${days === 1 ? '' : 's'} was approved.`,
+            body: user
+              ? `Your ${request.leaveType.name} leave for ${days} day${days === 1 ? '' : 's'} was approved.`
+              : `Your ${request.leaveType.name} leave for ${days} day${days === 1 ? '' : 's'} was approved automatically — balance and team cover were both clear.`,
             link: `/leave`,
           },
         });
@@ -518,7 +580,8 @@ export class LeaveService {
     });
 
     this.logger.log(
-      `Leave ${request.id} approved by ${user.email} (${user.role}) ` +
+      `Leave ${request.id} approved by ` +
+        `${user ? `${user.email} (${user.role})` : 'the rules engine'} ` +
         `for ${request.employee.firstName} (${requesterRole})`,
     );
     return updated;
@@ -743,7 +806,8 @@ export class LeaveService {
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
     const [
-      current, prior, balanceRows, history, rejected, department, sameRoleSize, othersOff,
+      current, prior, balanceRows, history, rejected, department, sameRoleSize,
+      othersOff, memberships,
     ] = await Promise.all([
         this.prisma.attendance.groupBy({
           by: ['status'],
@@ -799,6 +863,43 @@ export class LeaveService {
             },
           },
         }),
+        // Every active project team this person is on, with each member's
+        // approved leave across the requested dates already filtered in.
+        // One query rather than one per team — a person on four projects
+        // would otherwise cost four round trips per card.
+        this.prisma.projectTeamMember.findMany({
+          where: { employeeId, team: { project: { status: 'ACTIVE' } } },
+          select: {
+            roleOnTeam: true,
+            team: {
+              select: {
+                name: true,
+                minimumStaff: true,
+                project: { select: { name: true } },
+                members: {
+                  select: {
+                    employeeId: true,
+                    roleOnTeam: true,
+                    employee: {
+                      select: {
+                        firstName: true, lastName: true, designation: true,
+                        employmentStatus: true,
+                        leaveRequests: {
+                          where: {
+                            status: 'APPROVED',
+                            startDate: { lte: request.endDate },
+                            endDate: { gte: request.startDate },
+                          },
+                          select: { id: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
       ]);
 
     const pct = (rows: { status: string; _count: number }[]) => {
@@ -840,7 +941,47 @@ export class LeaveService {
       (o) => o.employee.designation === request.employee.designation,
     );
 
+    const staffing = {
+      teams: memberships.map((m) => {
+        // Someone who has left still has a row on the team; counting them
+        // as cover would hold a request open against a person who is gone.
+        const members = m.team.members.filter(
+          (x) => x.employee.employmentStatus === 'ACTIVE',
+        );
+        const roleOf = (x: (typeof members)[number]) =>
+          x.roleOnTeam ?? x.employee.designation;
+        const myRole = m.roleOnTeam ?? request.employee.designation;
+        const named = (x: (typeof members)[number]) =>
+          `${x.employee.firstName} ${x.employee.lastName}`;
+
+        const others = members.filter((x) => x.employeeId !== employeeId);
+        const off = others.filter((x) => x.employee.leaveRequests.length > 0);
+        const sameRole = others.filter((x) => roleOf(x) === myRole);
+        const sameRoleOff = sameRole.filter(
+          (x) => x.employee.leaveRequests.length > 0,
+        );
+
+        return {
+          project: m.team.project.name,
+          team: m.team.name,
+          minimumStaff: m.team.minimumStaff,
+          teamSize: members.length,
+          alreadyOff: off.length,
+          offNames: off.slice(0, 5).map(named),
+          // The team minus everyone already off, minus this person.
+          availableIfApproved: members.length - off.length - 1,
+          roleOnTeam: myRole,
+          // Including this person: "two backend engineers" means two, of
+          // whom one is asking.
+          sameRoleSize: sameRole.length + 1,
+          sameRoleOff: sameRoleOff.length,
+          sameRoleOffNames: sameRoleOff.slice(0, 5).map(named),
+        };
+      }),
+    };
+
     const partial = {
+      staffing,
       attendance: {
         windowDays: THRESHOLDS.WINDOW_DAYS,
         percentage: cur.percentage === null ? null : Number(cur.percentage.toFixed(1)),

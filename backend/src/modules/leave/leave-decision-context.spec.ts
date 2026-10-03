@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFlags, CLEAR_FLAG, contextFingerprint, DECISION_RULES, describeRules,
-  evaluateRules, floorFromFlags, THRESHOLDS, verdictFloor, type Facts,
+  evaluateRules, floorFromFlags, THRESHOLDS, verdictFloor,
+  autoApprovable, autoApprovalNote,
+  type Facts, type TeamStaffing,
 } from './leave-decision-context.js';
 
 /** A request with nothing wrong with it. Each test bends one thing. */
@@ -23,6 +25,27 @@ function facts(overrides: Partial<Facts> = {}): Facts {
       designation: 'Backend Engineer', sameRoleSize: 3, sameRoleOff: 0, sameRoleOffNames: [],
       ...overrides.coverage,
     },
+    // Not on any project by default — most tests are about the person, and
+    // an empty list is also the real state of anyone unassigned.
+    staffing: { teams: [], ...overrides.staffing },
+  };
+}
+
+/** A project team with room to spare unless a test narrows it. */
+function team(over: Partial<TeamStaffing> = {}): TeamStaffing {
+  return {
+    project: 'Apollo Platform',
+    team: 'Tech',
+    minimumStaff: 4,
+    teamSize: 8,
+    alreadyOff: 2,
+    offNames: ['Hamza Iqbal', 'Zainab Ali'],
+    availableIfApproved: 5,
+    roleOnTeam: 'Backend Engineer',
+    sameRoleSize: 5,
+    sameRoleOff: 1,
+    sameRoleOffNames: ['Hamza Iqbal'],
+    ...over,
   };
 }
 
@@ -311,5 +334,153 @@ describe('the staleness fingerprint', () => {
     // CHAR(40) in the schema. A longer digest would be silently truncated
     // and every comparison would then match.
     expect(hash(facts())).toHaveLength(40);
+  });
+});
+
+describe('project staffing', () => {
+  const onProject = (over: Partial<TeamStaffing> = {}) =>
+    facts({ staffing: { teams: [team(over)] } });
+
+  it('says nothing while the team keeps its minimum', () => {
+    // Eight on the team, two already off, approving leaves five. The
+    // minimum is four, so there is nothing to raise.
+    expect(codes(onProject())).toEqual([]);
+  });
+
+  it('allows the request that lands exactly on the minimum', () => {
+    // Four needed, four left. A minimum is the number that must remain,
+    // not the number you must stay above.
+    expect(codes(onProject({ alreadyOff: 3, availableIfApproved: 4 }))).toEqual([]);
+  });
+
+  it('flags the request that goes one below', () => {
+    const found = codes(onProject({ alreadyOff: 4, availableIfApproved: 3 }));
+    expect(found).toContain('PROJECT_UNDERSTAFFED');
+  });
+
+  it('names the team, the numbers and who is already off', () => {
+    const hit = evaluateRules(
+      onProject({ alreadyOff: 4, availableIfApproved: 3, offNames: ['Hamza Iqbal', 'Zainab Noor'] }),
+      GOOD_REASON,
+    ).find((h) => h.rule.code === 'PROJECT_UNDERSTAFFED');
+
+    expect(hit?.flag.label).toBe('Apollo Platform · Tech below minimum');
+    expect(hit?.flag.detail).toContain('leaves 3 people available of 8');
+    expect(hit?.flag.detail).toContain('this team needs 4');
+    expect(hit?.flag.detail).toContain('Hamza Iqbal, Zainab Noor');
+  });
+
+  it('reports the worst team when several are affected', () => {
+    const many = facts({
+      staffing: {
+        teams: [
+          team({ team: 'Marketing', minimumStaff: 2, teamSize: 3, availableIfApproved: 1 }),
+          team({ team: 'Tech', minimumStaff: 4, teamSize: 8, availableIfApproved: 1 }),
+        ],
+      },
+    });
+    const hit = evaluateRules(many, GOOD_REASON)
+      .find((h) => h.rule.code === 'PROJECT_UNDERSTAFFED');
+    // Tech is three short; Marketing is one short. The bigger shortfall is
+    // the one that decides whether this can go ahead.
+    expect(hit?.flag.label).toContain('Tech');
+    expect(hit?.flag.detail).toContain('1 other team is also affected');
+  });
+
+  it('flags a role nobody else on the project can do', () => {
+    // Two backend engineers on the team and the other one is off: the
+    // headcount can look fine while the skill is simply not there.
+    const found = codes(onProject({ sameRoleSize: 2, sameRoleOff: 1, sameRoleOffNames: ['Hamza Iqbal'] }));
+    expect(found).toContain('PROJECT_ROLE_UNCOVERED');
+  });
+
+  it('stays quiet while another person can do the job', () => {
+    // Five backend engineers, one off: three others remain.
+    expect(codes(onProject({ sameRoleSize: 5, sameRoleOff: 1 })))
+      .not.toContain('PROJECT_ROLE_UNCOVERED');
+  });
+
+  it('ignores a role only one person holds', () => {
+    // There is nobody else to be off. Flagging this would mean the only
+    // designer on a project could never take leave.
+    expect(codes(onProject({ roleOnTeam: 'Tech Lead', sameRoleSize: 1, sameRoleOff: 0 })))
+      .not.toContain('PROJECT_ROLE_UNCOVERED');
+  });
+
+  it('says nothing at all for somebody on no project', () => {
+    expect(codes(facts({ staffing: { teams: [] } }))).toEqual([]);
+  });
+});
+
+describe('approving without a person', () => {
+  it('goes through when no rule objects', () => {
+    expect(autoApprovable(evaluateRules(facts(), GOOD_REASON))).toBe(true);
+  });
+
+  it('stops for a staffing breach', () => {
+    const short = facts({
+      staffing: { teams: [team({ alreadyOff: 4, availableIfApproved: 3 })] },
+    });
+    expect(autoApprovable(evaluateRules(short, GOOD_REASON))).toBe(false);
+  });
+
+  it('stops for anything a person was meant to weigh', () => {
+    const low = facts({ attendance: { ...facts().attendance, percentage: 61 } });
+    expect(autoApprovable(evaluateRules(low, GOOD_REASON))).toBe(false);
+  });
+
+  it('is not stopped by notes alone', () => {
+    // Lateness and a brief reason are worth showing HR. Neither is a reason
+    // to make somebody wait for a clean request.
+    const noisy = facts({ attendance: { ...facts().attendance, lateCount: 6 } });
+    expect(autoApprovable(evaluateRules(noisy, 'sick'))).toBe(true);
+  });
+
+  it('agrees with the recommendation floor, always', () => {
+    // Two routes to the same judgement. If they could disagree, a request
+    // could be auto-approved while the queue said it needed review.
+    for (const f of [
+      facts(),
+      facts({ attendance: { ...facts().attendance, percentage: 55 } }),
+      facts({ balance: { allocated: 5, used: 5, remaining: 0, afterApproval: -1 } }),
+      facts({ staffing: { teams: [team({ availableIfApproved: 2 })] } }),
+      facts({ staffing: { teams: [team()] } }),
+    ]) {
+      const hits = evaluateRules(f, GOOD_REASON);
+      expect(autoApprovable(hits)).toBe(verdictFloor(hits) === 'APPROVE');
+    }
+  });
+
+  it('stops the moment a new concern rule is added', () => {
+    // The property the whole weight system exists for: a factor added
+    // tomorrow narrows what goes through automatically, with no edit here.
+    DECISION_RULES.push({
+      code: 'BLACKOUT_PERIOD',
+      level: 'warning',
+      weight: 'concern',
+      meaning: 'Falls inside the year-end close, when nobody is released.',
+      applies: () => true,
+      describe: () => ({ label: 'Year-end close', detail: 'These dates fall in the close period.' }),
+    });
+    try {
+      expect(autoApprovable(evaluateRules(facts(), GOOD_REASON))).toBe(false);
+    } finally {
+      DECISION_RULES.pop();
+    }
+  });
+});
+
+describe('the note HR reads', () => {
+  it('says what it checked, with the numbers', () => {
+    const note = autoApprovalNote(facts({ staffing: { teams: [team()] } }), 'Annual');
+    expect(note).toContain('Approved automatically');
+    expect(note).toContain('10 days of Annual leave remaining, 7 after this');
+    expect(note).toContain('attendance 94%');
+    expect(note).toContain('Apollo Platform · Tech keeps 5 of 8 available against a minimum of 4');
+  });
+
+  it('falls back to the department for somebody on no project', () => {
+    const note = autoApprovalNote(facts(), 'Annual');
+    expect(note).toContain('1 of 8 in the department are off');
   });
 });

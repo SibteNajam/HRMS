@@ -56,6 +56,7 @@ export const baseApi = createApi({
     'Payslip',
     'Due',
     'Notification',
+    'Project',
     'Report',
     'AiConversation',
     'Candidate',

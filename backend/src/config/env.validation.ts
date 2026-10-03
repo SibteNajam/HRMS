@@ -65,6 +65,20 @@ export const envSchema = z.object({
     .string()
     .default('0,6')
     .transform((v) => v.split(',').map(Number)),
+
+  /**
+   * Approve a leave request without a human when every rule is satisfied:
+   * sufficient balance, attendance in normal range, and no project team
+   * taken below its minimum staffing.
+   *
+   * Off by default. Turning it on removes a person from the loop, which is
+   * a policy decision for whoever runs the system rather than a default
+   * somebody inherits by upgrading.
+   */
+  LEAVE_AUTO_APPROVAL: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

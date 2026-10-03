@@ -2,34 +2,51 @@
 
 import { useState } from 'react';
 import {
-  CalendarOff, ChevronDown, CircleAlert, CircleCheck, Clock, Info,
-  TriangleAlert, Users,
+  ChevronDown, CircleAlert, CircleCheck, Info, Scale, Sparkles, TriangleAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { DecisionContext, DecisionFlag } from '@/types';
-import { summarise, type Verdict } from './verdict';
+import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
+import { agreementOf, summarise, type Agreement, type Verdict } from './verdict';
 
-const VERDICT: Record<
-  Verdict,
-  { icon: typeof Info; wrap: string; text: string; dot: string }
-> = {
+const VERDICT: Record<Verdict, { icon: typeof Info; wrap: string; text: string }> = {
   blocked: {
     icon: CircleAlert,
     wrap: 'border-[color-mix(in_srgb,var(--danger)_32%,transparent)] bg-[color-mix(in_srgb,var(--danger)_9%,transparent)]',
     text: 'text-danger',
-    dot: 'bg-danger',
   },
   check: {
     icon: TriangleAlert,
     wrap: 'border-[color-mix(in_srgb,var(--warning)_32%,transparent)] bg-[color-mix(in_srgb,var(--warning)_9%,transparent)]',
     text: 'text-warning',
-    dot: 'bg-warning',
   },
   clear: {
     icon: CircleCheck,
     wrap: 'border-[color-mix(in_srgb,var(--success)_28%,transparent)] bg-[color-mix(in_srgb,var(--success)_8%,transparent)]',
     text: 'text-success',
-    dot: 'bg-success',
+  },
+};
+
+/**
+ * Agreement is the only part of a recommendation worth visual weight.
+ *
+ * "The assistant also thinks this is fine" tells a reviewer nothing they did
+ * not already have from the flags, so it is a quiet grey line. A
+ * disagreement is the case where reading the recommendation changes the
+ * decision, so that one gets colour.
+ */
+const AGREEMENT: Record<Agreement, { label: string; cls: string }> = {
+  agrees: {
+    label: 'AI agrees',
+    cls: 'bg-surface-raised text-content-tertiary',
+  },
+  stricter: {
+    label: 'AI wants a closer look',
+    cls: 'bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] text-warning',
+  },
+  softer: {
+    label: 'AI judges this fine',
+    cls: 'bg-[color-mix(in_srgb,var(--brand)_12%,transparent)] text-brand',
   },
 };
 
@@ -39,42 +56,70 @@ const LEVEL_TEXT: Record<DecisionFlag['level'], string> = {
   info: 'text-content-secondary',
 };
 
+const FACT_TONE = {
+  default: 'text-content-primary',
+  warning: 'text-warning',
+  danger: 'text-danger',
+} as const;
+
 /**
- * Verdict first, numbers on demand.
+ * One conclusion per request.
  *
- * Four tiles of equal weight make the reader do the judging and turn a queue
- * of twenty into a scrolling exercise. One coloured line answers "can I
- * approve this?"; the detail stays one click away for the cases that need it.
+ * The rules engine and the assistant used to occupy two stacked panels of
+ * the same colour, each with its own tick, saying the same thing in
+ * different words. A reviewer had to read both to learn they agreed. Now
+ * there is one verdict, the assistant's sentence underneath it, and the
+ * three figures that support it — with the rest one click away.
  */
-export function DecisionPanel({ ctx }: { ctx: DecisionContext }) {
+export function DecisionPanel({
+  ctx, rec,
+}: {
+  ctx: DecisionContext;
+  rec?: LeaveRecommendation;
+}) {
   const [open, setOpen] = useState(false);
   const s = summarise(ctx);
   const v = VERDICT[s.verdict];
-  // Everyone else who does this job is already off. Mirrors the
-  // ROLE_UNCOVERED rule on the server, which is what actually decides the
-  // badge — this only tints the tile.
-  const roleUncovered =
-    ctx.coverage.sameRoleSize > 1 &&
-    ctx.coverage.sameRoleOff > 0 &&
-    ctx.coverage.sameRoleOff >= ctx.coverage.sameRoleSize - 1;
   const Glyph = v.icon;
+  const agreement = agreementOf(s.verdict, rec);
 
   return (
-    <div className={cn('mt-4 rounded-lg border', v.wrap)}>
+    <div className={cn('mt-4 overflow-hidden rounded-lg border', v.wrap)}>
       <div className="flex items-start gap-3 p-3.5">
         <Glyph size={18} strokeWidth={2} className={cn('mt-0.5 shrink-0', v.text)} aria-hidden />
 
         <div className="min-w-0 flex-1">
-          <p className={cn('text-body font-semibold', v.text)}>{s.headline}</p>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <p className={cn('text-body font-semibold', v.text)}>{s.headline}</p>
+            {agreement && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption font-medium',
+                  AGREEMENT[agreement].cls,
+                )}
+              >
+                <Sparkles size={11} strokeWidth={2.5} aria-hidden />
+                {AGREEMENT[agreement].label}
+              </span>
+            )}
+          </div>
 
-          {s.reassurance && (
-            <p className="mt-0.5 text-body-sm text-content-secondary">
-              {s.reassurance}
+          {rec && (
+            <p className="mt-1.5 text-body leading-snug text-content-primary">{rec.reason}</p>
+          )}
+
+          {/* An override is shown rather than silently applied: the reviewer
+              should see that it was the rules and not the model that moved
+              the verdict. */}
+          {rec?.adjusted && (
+            <p className="mt-2 flex items-start gap-1.5 rounded-md bg-surface-raised px-2 py-1.5 text-caption text-content-secondary">
+              <Scale size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
+              <span>{rec.adjusted}</span>
             </p>
           )}
 
           {s.points.length > 0 && (
-            <ul className="mt-2 flex flex-col gap-1.5">
+            <ul className="mt-2.5 flex flex-col gap-1.5">
               {s.points.map((f) => (
                 <li key={f.code} className="flex items-start gap-2">
                   <span
@@ -88,9 +133,7 @@ export function DecisionPanel({ ctx }: { ctx: DecisionContext }) {
                     )}
                   />
                   <p className="text-body-sm leading-snug">
-                    <span className={cn('font-medium', LEVEL_TEXT[f.level])}>
-                      {f.label}
-                    </span>
+                    <span className={cn('font-medium', LEVEL_TEXT[f.level])}>{f.label}</span>
                     <span className="text-content-secondary"> — {f.detail}</span>
                   </p>
                 </li>
@@ -98,13 +141,28 @@ export function DecisionPanel({ ctx }: { ctx: DecisionContext }) {
             </ul>
           )}
 
+          {/* The same three figures on every card, in the same place. A
+              reviewer learns where to look once. */}
+          <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2.5">
+            {s.facts.map((f) => (
+              <div key={f.label}>
+                <dt className="text-[10px] font-medium uppercase tracking-[0.05em] text-content-tertiary">
+                  {f.label}
+                </dt>
+                <dd className={cn('tabular text-body font-semibold', FACT_TONE[f.tone])}>
+                  {f.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            className="mt-2.5 inline-flex items-center gap-1 text-body-sm font-medium text-content-secondary transition-colors hover:text-content-primary"
+            className="mt-3 inline-flex items-center gap-1 text-body-sm font-medium text-content-secondary transition-colors hover:text-content-primary"
           >
-            {open ? 'Hide' : 'View'} the numbers
+            {open ? 'Hide' : 'More'} detail
             <ChevronDown
               size={14}
               className={cn('transition-transform duration-200 ease-out', open && 'rotate-180')}
@@ -116,124 +174,93 @@ export function DecisionPanel({ ctx }: { ctx: DecisionContext }) {
       <div
         className={cn(
           'grid transition-all duration-200 ease-out',
-          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
         )}
       >
         <div className="overflow-hidden">
-          <div className="grid gap-2.5 border-t border-line-subtle p-3.5 sm:grid-cols-4">
-            <Metric
-              icon={CircleCheck}
-              label={`Attendance · ${ctx.attendance.windowDays}d`}
-              value={
-                ctx.attendance.percentage === null
-                  ? '—'
-                  : `${ctx.attendance.percentage.toFixed(0)}%`
-              }
-              tone={
-                ctx.attendance.percentage !== null && ctx.attendance.percentage < 80
-                  ? 'danger'
-                  : 'default'
-              }
-              sub={
-                ctx.attendance.percentage === null
-                  ? 'No records yet'
-                  : ctx.attendance.previousPercentage !== null
-                    ? `was ${ctx.attendance.previousPercentage.toFixed(0)}%`
-                    : 'No prior period'
-              }
-            />
-            <Metric
-              icon={Clock}
-              label="Late arrivals"
-              value={String(ctx.attendance.lateCount)}
-              tone={ctx.attendance.lateCount >= 3 ? 'warning' : 'default'}
-              sub={`${ctx.attendance.absentDays} absent`}
-            />
-            <Metric
-              icon={CalendarOff}
-              label="Balance after"
-              value={ctx.balance.allocated > 0 ? `${ctx.balance.afterApproval}d` : '∞'}
-              tone={
-                ctx.balance.afterApproval < 0
-                  ? 'danger'
-                  : ctx.balance.afterApproval === 0 && ctx.balance.allocated > 0
-                    ? 'warning'
-                    : 'default'
-              }
-              sub={
-                ctx.balance.allocated > 0
-                  ? `${ctx.balance.remaining} of ${ctx.balance.allocated} now`
-                  : 'Unpaid — no quota'
-              }
-            />
-            {/* The department ratio and the role cover are different
-                questions. Two backend engineers in a team of twelve reads
-                as well covered right up until the other one is off, so the
-                job title goes in the line underneath. */}
-            <Metric
-              icon={Users}
-              label="Team off"
-              value={`${ctx.coverage.othersOffInRange}/${ctx.coverage.departmentSize}`}
-              tone={
-                roleUncovered ||
-                (ctx.coverage.departmentSize > 1 &&
-                  ctx.coverage.othersOffInRange / ctx.coverage.departmentSize >= 0.4)
-                  ? 'warning'
-                  : 'default'
-              }
-              sub={
-                ctx.coverage.sameRoleSize > 1
-                  ? `${ctx.coverage.sameRoleOff}/${ctx.coverage.sameRoleSize - 1} other ${ctx.coverage.designation}`
-                  : 'during these dates'
-              }
-            />
-          </div>
+          <div className="border-t border-line-subtle bg-surface-raised">
+            <dl className="grid gap-x-6 gap-y-3 p-3.5 sm:grid-cols-3">
+              <Detail
+                label="Late arrivals"
+                value={`${ctx.attendance.lateCount} in ${ctx.attendance.windowDays} days`}
+                tone={ctx.attendance.lateCount >= 3 ? 'warning' : 'default'}
+              />
+              <Detail
+                label="Absences"
+                value={`${ctx.attendance.absentDays} of ${ctx.attendance.workingDays} working days`}
+              />
+              <Detail
+                label="Previous period"
+                value={
+                  ctx.attendance.previousPercentage === null
+                    ? 'No prior period'
+                    : `${ctx.attendance.previousPercentage.toFixed(0)}% attendance`
+                }
+              />
+              <Detail
+                label="Leave this year"
+                value={`${ctx.history.daysTakenThisYear} days across ${ctx.history.requestsThisYear} request${ctx.history.requestsThisYear === 1 ? '' : 's'}`}
+              />
+              <Detail
+                label="Tenure"
+                value={`${ctx.history.tenureMonths} month${ctx.history.tenureMonths === 1 ? '' : 's'}`}
+              />
+              <Detail
+                label="Prior rejections"
+                value={ctx.history.rejectedThisYear === 0
+                  ? 'None this year'
+                  : `${ctx.history.rejectedThisYear} this year`}
+                tone={ctx.history.rejectedThisYear > 0 ? 'warning' : 'default'}
+              />
+            </dl>
 
-          <p className="border-t border-line-subtle px-3.5 py-2.5 text-caption text-content-tertiary">
-            {ctx.history.daysTakenThisYear} days taken this year across{' '}
-            {ctx.history.requestsThisYear} request
-            {ctx.history.requestsThisYear === 1 ? '' : 's'}
-            {ctx.history.rejectedThisYear > 0 &&
-              ` · ${ctx.history.rejectedThisYear} rejected`}{' '}
-            · {ctx.history.tenureMonths} month
-            {ctx.history.tenureMonths === 1 ? '' : 's'} tenure
-          </p>
+            {/* Kept out of the collapsed card but not dropped: it is the
+                record of what the recommendation rested on, which is what
+                makes the advice checkable rather than merely received. */}
+            {rec && rec.basis.length > 0 && (
+              <div className="border-t border-line-subtle px-3.5 py-2.5">
+                <p className="text-caption font-medium text-content-tertiary">
+                  What the assistant looked at
+                </p>
+                <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                  {rec.basis.map((b, i) => (
+                    <li
+                      key={i}
+                      className="rounded-md bg-surface-sunken px-2 py-1 text-caption text-content-secondary"
+                    >
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function Metric({
-  icon: Glyph, label, value, sub, tone = 'default',
+function Detail({
+  label, value, tone = 'default',
 }: {
-  icon: typeof Info;
   label: string;
   value: string;
-  sub: string;
-  tone?: 'default' | 'warning' | 'danger';
+  tone?: 'default' | 'warning';
 }) {
   return (
-    <div className="rounded-md border border-line-subtle bg-surface-raised px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-content-tertiary">
-        <Glyph size={12} strokeWidth={2} aria-hidden />
-        <span className="truncate text-[10px] font-medium uppercase tracking-[0.04em]">
-          {label}
-        </span>
-      </div>
-      <p
+    <div>
+      <dt className="text-[10px] font-medium uppercase tracking-[0.05em] text-content-tertiary">
+        {label}
+      </dt>
+      <dd
         className={cn(
-          'tabular mt-0.5 font-display text-h3 font-bold',
-          tone === 'danger'
-            ? 'text-danger'
-            : tone === 'warning'
-              ? 'text-warning'
-              : 'text-content-primary',
+          'tabular text-body-sm font-medium',
+          tone === 'warning' ? 'text-warning' : 'text-content-primary',
         )}
       >
         {value}
-      </p>
-      <p className="text-caption text-content-tertiary">{sub}</p>
+      </dd>
     </div>
   );
 }

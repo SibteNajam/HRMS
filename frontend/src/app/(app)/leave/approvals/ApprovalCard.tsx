@@ -12,7 +12,6 @@ import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useReviewLeaveRequestMutation } from '@/store/api/endpoints/leaveApi';
 import type { LeaveRequest } from '@/types';
 import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
-import { Recommendation } from './Recommendation';
 import { DecisionPanel } from './DecisionPanel';
 import { RejectDialog } from './RejectDialog';
 import { summarise, type Verdict } from './verdict';
@@ -129,10 +128,12 @@ export function ApprovalCard({
           <p className="text-body leading-relaxed text-content-primary">{request.reason}</p>
         </div>
 
-        {/* Recommendation first, then the figures it rests on — so a
-            reviewer can check the advice rather than only receive it. */}
-        {recommendation && <Recommendation rec={recommendation} />}
-        {request.decision && <DecisionPanel ctx={request.decision} />}
+        {/* One conclusion, not two. The rules engine and the assistant
+            share a single block so a reviewer reads one verdict rather than
+            two panels that usually agree. */}
+        {request.decision && (
+          <DecisionPanel ctx={request.decision} rec={recommendation} />
+        )}
 
         <footer className="mt-4 flex items-center justify-end gap-2">
           <Button variant="secondary" icon={X} disabled={isLoading} onClick={() => setRejecting(true)}>

@@ -2,9 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import {
-  CircleAlert, CircleCheck, Inbox, ShieldCheck, Sparkles, TriangleAlert,
-} from 'lucide-react';
+import { ArrowDownNarrowWide, Inbox, ShieldCheck, Sparkles } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { CardListSkeleton } from '@/components/ui/loading';
 import { Button } from '@/components/ui/Button';
@@ -16,7 +14,8 @@ import {
 } from '@/store/api/endpoints/leaveApi';
 import { useAppSelector } from '@/store/hooks';
 import { ApprovalCard } from './ApprovalCard';
-import { summarise } from './verdict';
+import { QueueSummary } from './QueueSummary';
+import { agreementOf, queueOrder, summarise, type Verdict } from './verdict';
 
 export default function ApprovalsPage() {
   const me = useAppSelector((s) => s.auth.user)!;
@@ -42,6 +41,28 @@ export default function ApprovalsPage() {
     // else reaches this screen only because we poll for it.
     { pollingInterval: 15_000, skipPollingIfUnfocused: true },
   );
+
+  // Verdict, agreement and sort key for each request, computed once.
+  // The comparator ran summarise() on both sides of every comparison before
+  // this, which is n log n evaluations of the same handful of answers.
+  const assessed = (data?.data ?? []).map((request) => {
+    const verdict: Verdict = request.decision
+      ? summarise(request.decision).verdict
+      : 'clear';
+    const recommendation = byRequest.get(request.id);
+    return {
+      request,
+      recommendation,
+      verdict,
+      agreement: agreementOf(verdict, recommendation),
+      order: queueOrder(verdict, recommendation),
+    };
+  });
+
+  // What cannot go through first, then what needs thought, then what is
+  // ready — and within each group, the ones where the assistant disagrees
+  // with the flags, because those are the ones worth reading.
+  const ordered = [...assessed].sort((a, b) => a.order - b.order);
 
   const scope =
     me.role === 'ADMIN'
@@ -74,56 +95,17 @@ export default function ApprovalsPage() {
         </div>
       )}
 
-      {!!recommendations.length && !analysing && (
-        <div className="stagger mb-5 grid gap-3 sm:grid-cols-3">
-          {([
-            ['APPROVE', 'Recommends approving', 'success'],
-            ['REVIEW', 'Wants your judgement', 'warning'],
-            ['REJECT', 'Recommends rejecting', 'danger'],
-          ] as const).map(([verdict, label, tone]) => {
-            const n = recommendations.filter((r) => r.verdict === verdict).length;
-            return (
-              <div
-                key={verdict}
-                className={`flex items-center gap-3 rounded-lg border px-4 py-3 border-[color-mix(in_srgb,var(--${tone})_28%,transparent)] bg-[color-mix(in_srgb,var(--${tone})_8%,transparent)] text-${tone}`}
-              >
-                <Sparkles size={18} strokeWidth={2} aria-hidden />
-                <p className="tabular font-display text-h2 font-bold">{n}</p>
-                <p className="text-body-sm font-medium opacity-90">{label}</p>
-              </div>
-            );
-          })}
-        </div>
+      {!isLoading && !!data?.data.length && (
+        <QueueSummary rows={assessed} analysed={!!recommendations.length} />
       )}
 
-      {/* The shape of the queue before a single card is read: how many are
-          fine, how many need a look, how many cannot go through. */}
-      {!isLoading && !!data?.data.length && (
-        <div className="stagger mb-5 grid gap-3 sm:grid-cols-3">
-          {(() => {
-            const v = data.data.map((r) =>
-              r.decision ? summarise(r.decision).verdict : 'clear',
-            );
-            const tiles = [
-              { k: 'clear',   n: v.filter((x) => x === 'clear').length,
-                label: 'Ready to approve', icon: CircleCheck,
-                cls: 'border-[color-mix(in_srgb,var(--success)_28%,transparent)] bg-[color-mix(in_srgb,var(--success)_8%,transparent)] text-success' },
-              { k: 'check',   n: v.filter((x) => x === 'check').length,
-                label: 'Need a look', icon: TriangleAlert,
-                cls: 'border-[color-mix(in_srgb,var(--warning)_28%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-warning' },
-              { k: 'blocked', n: v.filter((x) => x === 'blocked').length,
-                label: 'Over balance', icon: CircleAlert,
-                cls: 'border-[color-mix(in_srgb,var(--danger)_28%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] text-danger' },
-            ];
-            return tiles.map((t) => (
-              <div key={t.k} className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${t.cls}`}>
-                <t.icon size={20} strokeWidth={2} aria-hidden />
-                <p className="tabular font-display text-h2 font-bold">{t.n}</p>
-                <p className="text-body-sm font-medium opacity-90">{t.label}</p>
-              </div>
-            ));
-          })()}
-        </div>
+      {/* Said once, here, rather than repeated on every card. */}
+      {!!recommendations.length && !analysing && (
+        <p className="mb-5 flex items-center gap-2 text-body-sm text-content-tertiary">
+          <Sparkles size={14} strokeWidth={2} aria-hidden />
+          Advice only — the decision and the record are yours. Figures on each
+          card are calculated by the system, not by the assistant.
+        </p>
       )}
 
       {isLoading ? (
@@ -149,11 +131,17 @@ export default function ApprovalsPage() {
         </div>
       ) : (
         <div className="stagger flex flex-col gap-4">
-          {data.data.map((request) => (
+          {data.data.length > 1 && (
+            <p className="flex items-center gap-1.5 text-caption text-content-tertiary">
+              <ArrowDownNarrowWide size={13} strokeWidth={2} aria-hidden />
+              Sorted by what needs attention first
+            </p>
+          )}
+          {ordered.map((row) => (
             <ApprovalCard
-              key={request.id}
-              request={request}
-              recommendation={byRequest.get(request.id)}
+              key={row.request.id}
+              request={row.request}
+              recommendation={row.recommendation}
             />
           ))}
         </div>

@@ -281,6 +281,11 @@ RULES
    Do not compute anything, and never state a figure you were not given.
 2. "basis" must contain only facts drawn from the data you were sent. It is
    shown to the reviewer so they can check your reasoning against the record.
+   Write each one as a short readable phrase, not as a field name and a
+   value: "93% attendance over 90 days", "14 days of annual leave remaining",
+   "Sibte Najam off the same week". Never emit "attendancePercent: 93" — the
+   field names in the data you were sent are internal and mean nothing to a
+   reviewer.
 3. Attendance of null means the person has no attendance history yet. Say that
    rather than treating it as poor attendance.
 4. A request from someone in an HR or ADMIN role is reviewed by an

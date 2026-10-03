@@ -54,6 +54,16 @@ export interface ReviewArgs {
   id: number;
   decision: 'APPROVED' | 'REJECTED';
   note?: string;
+  /** Sent so the audit trail shows whether HR followed or overrode the AI. */
+  aiVerdict?: 'APPROVE' | 'REVIEW' | 'REJECT';
+}
+
+export interface LeaveRecommendation {
+  requestId: number;
+  verdict: 'APPROVE' | 'REVIEW' | 'REJECT';
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  reason: string;
+  basis: string[];
 }
 
 export interface ListArgs {
@@ -94,6 +104,10 @@ export const leaveApi = baseApi.injectEndpoints({
     getAllLeaveRequests: build.query<Paginated<LeaveRequest>, ListArgs>({
       query: (params) => ({ url: '/leave/requests/all', params }),
       providesTags: [{ type: 'LeaveRequest', id: 'ALL' }],
+    }),
+
+    getLeaveRecommendations: build.mutation<LeaveRecommendation[], void>({
+      query: () => ({ url: '/leave/requests/recommendations', method: 'POST' }),
     }),
 
     createLeaveRequest: build.mutation<LeaveRequest, CreateLeaveArgs>({
@@ -166,6 +180,7 @@ export const leaveApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useGetLeaveRecommendationsMutation,
   useGetAllBalancesQuery,
   useGetLeaveCalendarQuery,
   useUpsertLeaveTypeMutation,

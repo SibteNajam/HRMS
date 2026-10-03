@@ -11,6 +11,8 @@ import { formatRelative } from '@/lib/format';
 import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useReviewLeaveRequestMutation } from '@/store/api/endpoints/leaveApi';
 import type { LeaveRequest } from '@/types';
+import type { LeaveRecommendation } from '@/store/api/endpoints/leaveApi';
+import { Recommendation } from './Recommendation';
 import { DecisionPanel } from './DecisionPanel';
 import { RejectDialog } from './RejectDialog';
 import { summarise, type Verdict } from './verdict';
@@ -29,7 +31,12 @@ const ACCENT: Record<Verdict, string> = {
   clear: 'before:bg-success',
 };
 
-export function ApprovalCard({ request }: { request: LeaveRequest }) {
+export function ApprovalCard({
+  request, recommendation,
+}: {
+  request: LeaveRequest;
+  recommendation?: LeaveRecommendation;
+}) {
   const [review, { isLoading }] = useReviewLeaveRequestMutation();
   const [rejecting, setRejecting] = useState(false);
 
@@ -43,7 +50,13 @@ export function ApprovalCard({ request }: { request: LeaveRequest }) {
 
   async function approve() {
     try {
-      await review({ id: request.id, decision: 'APPROVED' }).unwrap();
+      // The AI verdict rides along so the audit trail records whether the
+      // human agreed with it or went the other way.
+      await review({
+        id: request.id,
+        decision: 'APPROVED',
+        aiVerdict: recommendation?.verdict,
+      }).unwrap();
       toast.success(`Approved ${name}'s leave`);
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -52,7 +65,10 @@ export function ApprovalCard({ request }: { request: LeaveRequest }) {
 
   async function reject(note: string) {
     try {
-      await review({ id: request.id, decision: 'REJECTED', note }).unwrap();
+      await review({
+        id: request.id, decision: 'REJECTED', note,
+        aiVerdict: recommendation?.verdict,
+      }).unwrap();
       toast.success(`Rejected ${name}'s leave`, { description: 'They have been notified.' });
       setRejecting(false);
     } catch (err) {
@@ -113,6 +129,9 @@ export function ApprovalCard({ request }: { request: LeaveRequest }) {
           <p className="text-body leading-relaxed text-content-primary">{request.reason}</p>
         </div>
 
+        {/* Recommendation first, then the figures it rests on — so a
+            reviewer can check the advice rather than only receive it. */}
+        {recommendation && <Recommendation rec={recommendation} />}
         {request.decision && <DecisionPanel ctx={request.decision} />}
 
         <footer className="mt-4 flex items-center justify-end gap-2">

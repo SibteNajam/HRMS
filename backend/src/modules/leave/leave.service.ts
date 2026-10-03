@@ -350,6 +350,23 @@ export class LeaveService {
       );
     }
 
+    // Did the human follow the advice? Recorded before the decision runs, so
+    // it is captured whether the write succeeds or not.
+    if (dto.aiVerdict) {
+      const followed =
+        (dto.aiVerdict === 'APPROVE' && dto.decision === 'APPROVED') ||
+        (dto.aiVerdict === 'REJECT' && dto.decision === 'REJECTED');
+      await this.prisma.auditLog.create({
+        data: {
+          actorUserId: user.sub,
+          action: followed ? 'LEAVE_AI_FOLLOWED' : 'LEAVE_AI_OVERRIDDEN',
+          entity: 'leave_request',
+          entityId: request.id,
+          metadata: { aiVerdict: dto.aiVerdict, humanDecision: dto.decision },
+        },
+      }).catch(() => undefined);
+    }
+
     if (dto.decision === 'REJECTED') {
       return this.reject(user, request.id, request.employee.user!.id, dto.note!);
     }

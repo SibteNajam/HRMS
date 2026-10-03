@@ -403,3 +403,89 @@ Adjust to your own organisation's policy if your report specifies one.
 - [ ] The employee receives an email
 - [ ] The AI summary appears and is visually marked as AI-generated
 - [ ] There is no code path where the AI writes to `leave_requests`
+
+
+## AI recommendation on each request
+
+The R&D report is explicit about where the AI sits in this decision:
+
+> **AI analyzes data → AI generates insight/recommendation → HR reviews →
+> HR approves/rejects → system performs authorized action** — §14
+>
+> "Decision support — provide **recommendations for HR review** rather than
+> making high-impact decisions autonomously." — §9
+
+Until now only the first half existed: the rules engine computed flags and
+the screen displayed them. The recommendation was missing.
+
+### What it does
+
+**Analyse with AI** on the approvals screen sends the whole queue in one
+request and returns a verdict per card:
+
+| Verdict | Means |
+|---|---|
+| `APPROVE` | Nothing stands against it — balance, attendance and coverage all normal |
+| `REVIEW` | Something a human should weigh: a coverage clash, declining attendance, repeated lateness, a reason too thin to judge |
+| `REJECT` | Approving would break a rule. Reserved for that; judgement calls are the reviewer's |
+
+Each carries a confidence, one or two sentences of reasoning, and a **basis**
+— the specific figures the verdict rests on, so the reviewer can check the
+reasoning against the record rather than take it on trust.
+
+### The model weighs facts, it does not produce them
+
+Every number sent to the model was already computed by
+`leave-decision-context.ts`: balance before and after, 90-day attendance
+against the 80% standard, late count, team coverage, tenure, prior
+rejections, and the rules-engine flags. The model sorts and weighs them.
+
+This matters for the same reason as everywhere else in the system — a
+threshold the rules engine applies is reproducible and can be defended in a
+conversation with an employee. A threshold the model invented cannot.
+
+### One call for the queue, not one per card
+
+The free tier caps tokens per minute, so a queue of twenty cards would be
+twenty round trips and would hit the limit. The whole queue goes in one
+request and comes back as a JSON array.
+
+### Hallucinated ids are dropped
+
+A model that returns a request id it was never given would attach a
+recommendation to the wrong person's leave. Every returned id is checked
+against the queue that was sent, and anything else is discarded with a
+warning. Verdict and confidence are validated against their allowed values
+for the same reason.
+
+### REJECT is rare by design
+
+The rules engine refuses an over-balance request at submission, so it never
+reaches the queue. Verified: a 15-day request against a 6-day balance is
+rejected with *"Not enough Casual leave. You asked for 15 days and have 6
+remaining"* before the AI is ever involved.
+
+That is the right division. Rules stop what is impossible; the AI advises on
+what is merely debatable.
+
+### Whether the human agreed is recorded
+
+The verdict travels with the decision, and the audit log records
+`LEAVE_AI_FOLLOWED` or `LEAVE_AI_OVERRIDDEN`:
+
+```
+LEAVE_AI_OVERRIDDEN   request 8   ai=REVIEW    human=REJECTED
+LEAVE_AI_FOLLOWED     request 1   ai=APPROVE   human=APPROVED
+```
+
+Without this there is no way to tell a considered decision from a rubber
+stamp — which is the thing §14's human-in-the-loop design exists to
+guarantee. It also gives the project a measurable result: how often HR agreed
+with the assistant.
+
+### There is still no path from advice to action
+
+`POST /leave/requests/recommendations` returns JSON and writes nothing. The
+approve endpoint is a separate route a person clicks, and it re-checks the
+balance, the approval hierarchy and the self-approval rule itself. The
+recommendation never touches those checks.

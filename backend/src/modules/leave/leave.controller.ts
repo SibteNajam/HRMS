@@ -1,7 +1,11 @@
 import {
-  Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query,
+  Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe,
+  Patch, Post, Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { Inject, forwardRef } from '@nestjs/common';
 import { LeaveService } from './leave.service.js';
+import { LeaveRecommendationService } from '../ai/leave-recommendation.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Audit } from '../../common/decorators/audit.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
@@ -14,7 +18,11 @@ import { UpsertLeaveTypeDto } from './dto/leave-type.dto.js';
 
 @Controller('leave')
 export class LeaveController {
-  constructor(private readonly leave: LeaveService) {}
+  constructor(
+    private readonly leave: LeaveService,
+    @Inject(forwardRef(() => LeaveRecommendationService))
+    private readonly recommender: LeaveRecommendationService,
+  ) {}
 
   @Get('types')
   types() {
@@ -59,6 +67,24 @@ export class LeaveController {
   @Roles(...HR_AND_ABOVE)
   pending(@CurrentUser() user: JwtUser, @Query() dto: ListLeaveDto) {
     return this.leave.pendingFor(user, dto);
+  }
+
+  /**
+   * AI recommendations for everything in this reviewer's queue, in one call.
+   *
+   * One request for the whole queue rather than one per card: the free tier
+   * is capped on tokens per minute, and a queue of twenty cards would
+   * otherwise be twenty round trips.
+   *
+   * This returns advice. It cannot approve anything — the approve endpoint
+   * is a separate route a human has to click.
+   */
+  @Post('requests/recommendations')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...HR_AND_ABOVE)
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  recommendations(@CurrentUser() user: JwtUser) {
+    return this.recommender.recommendForQueue(user);
   }
 
   @Get('requests/pending/count')

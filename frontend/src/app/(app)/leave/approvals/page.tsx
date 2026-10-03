@@ -1,15 +1,40 @@
 'use client';
 
-import { CircleAlert, CircleCheck, Inbox, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import {
+  CircleAlert, CircleCheck, Inbox, ShieldCheck, Sparkles, TriangleAlert,
+} from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { CardListSkeleton } from '@/components/ui/loading';
-import { useGetPendingLeaveRequestsQuery } from '@/store/api/endpoints/leaveApi';
+import { Button } from '@/components/ui/Button';
+import { getErrorMessage } from '@/lib/getErrorMessage';
+import {
+  useGetLeaveRecommendationsMutation,
+  useGetPendingLeaveRequestsQuery,
+  type LeaveRecommendation,
+} from '@/store/api/endpoints/leaveApi';
 import { useAppSelector } from '@/store/hooks';
 import { ApprovalCard } from './ApprovalCard';
 import { summarise } from './verdict';
 
 export default function ApprovalsPage() {
   const me = useAppSelector((s) => s.auth.user)!;
+  const [recommendations, setRecommendations] = useState<LeaveRecommendation[]>([]);
+  const [analyse, { isLoading: analysing }] = useGetLeaveRecommendationsMutation();
+
+  // One call for the whole queue rather than one per card — the free tier is
+  // capped on tokens per minute, and twenty cards would be twenty round trips.
+  async function runAnalysis() {
+    try {
+      setRecommendations(await analyse().unwrap());
+      toast.success('Queue analysed');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  }
+
+  const byRequest = new Map(recommendations.map((r) => [r.requestId, r]));
 
   const { data, isLoading, isError } = useGetPendingLeaveRequestsQuery(
     { limit: 50 },
@@ -28,7 +53,48 @@ export default function ApprovalsPage() {
       <PageHeader
         title="Leave approvals"
         subtitle={isLoading ? 'Loading…' : scope}
+        actions={
+          !isLoading && !!data?.data.length ? (
+            <Button
+              variant="primary"
+              icon={Sparkles}
+              loading={analysing}
+              onClick={runAnalysis}
+            >
+              {recommendations.length ? 'Re-analyse queue' : 'Analyse with AI'}
+            </Button>
+          ) : undefined
+        }
       />
+
+      {analysing && (
+        <div className="mb-5 rounded-xl border border-line-subtle bg-surface-sunken p-4 text-body-sm text-content-secondary">
+          Reading each request against balance, attendance, team coverage and
+          history…
+        </div>
+      )}
+
+      {!!recommendations.length && !analysing && (
+        <div className="stagger mb-5 grid gap-3 sm:grid-cols-3">
+          {([
+            ['APPROVE', 'Recommends approving', 'success'],
+            ['REVIEW', 'Wants your judgement', 'warning'],
+            ['REJECT', 'Recommends rejecting', 'danger'],
+          ] as const).map(([verdict, label, tone]) => {
+            const n = recommendations.filter((r) => r.verdict === verdict).length;
+            return (
+              <div
+                key={verdict}
+                className={`flex items-center gap-3 rounded-lg border px-4 py-3 border-[color-mix(in_srgb,var(--${tone})_28%,transparent)] bg-[color-mix(in_srgb,var(--${tone})_8%,transparent)] text-${tone}`}
+              >
+                <Sparkles size={18} strokeWidth={2} aria-hidden />
+                <p className="tabular font-display text-h2 font-bold">{n}</p>
+                <p className="text-body-sm font-medium opacity-90">{label}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* The shape of the queue before a single card is read: how many are
           fine, how many need a look, how many cannot go through. */}
@@ -84,7 +150,11 @@ export default function ApprovalsPage() {
       ) : (
         <div className="stagger flex flex-col gap-4">
           {data.data.map((request) => (
-            <ApprovalCard key={request.id} request={request} />
+            <ApprovalCard
+              key={request.id}
+              request={request}
+              recommendation={byRequest.get(request.id)}
+            />
           ))}
         </div>
       )}

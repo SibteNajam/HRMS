@@ -335,6 +335,17 @@ model Payslip {
   bonus                Decimal @default(0) @db.Decimal(12, 2)
   netSalary            Decimal @map("net_salary") @db.Decimal(12, 2)
 
+  /// Why the unpaid-leave figure is what it is: the days, the dates and the
+  /// per-day rate. Computed from the approved leave records when the run is
+  /// created, never typed and never written by a model — it explains money,
+  /// so it has to be reproducible from the record.
+  leaveDeductionNote    String? @map("leave_deduction_note") @db.VarChar(500)
+  /// HR's own words for the two figures only HR can set. Frozen with the
+  /// rest of the payslip, so an employee asking in six months gets the
+  /// reason that applied at the time.
+  bonusReason           String? @map("bonus_reason") @db.VarChar(255)
+  otherDeductionsReason String? @map("other_deductions_reason") @db.VarChar(255)
+
   payrollRun  PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   employee    Employee     @relation(fields: [employeeId], references: [id])
   duePayments DuePayment[]

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calculateNetSalary, flagPayslip, round2, type PayrollInput,
+  calculateNetSalary, describeUnpaidLeave, flagPayslip, round2,
+  type PayrollInput,
 } from './payroll-policy.js';
 
 const base = (over: Partial<PayrollInput> = {}): PayrollInput => ({
@@ -213,5 +214,79 @@ describe('flags', () => {
     const codes2 = flagPayslip(consumed, null).map((f) => f.code);
     expect(codes2).toContain('ZERO_NET');
     expect(codes2).not.toContain('NO_SALARY');
+  });
+});
+
+describe('explaining the unpaid-leave deduction', () => {
+  const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+  it('says nothing when there was no unpaid leave', () => {
+    expect(describeUnpaidLeave([], 4000)).toBeNull();
+  });
+
+  it('says nothing for a spell that fell entirely on non-working days', () => {
+    // A "spell" of zero working days is a weekend. There is no pay to
+    // withhold, so there is nothing to explain either.
+    expect(describeUnpaidLeave(
+      [{ leaveType: 'Unpaid', from: d('2026-03-14'), to: d('2026-03-15'), days: 0 }],
+      4000,
+    )).toBeNull();
+  });
+
+  it('names the days, the rate and the dates', () => {
+    // The three things an employee checks against their own calendar.
+    expect(describeUnpaidLeave(
+      [{ leaveType: 'Unpaid', from: d('2026-03-12'), to: d('2026-03-14'), days: 3 }],
+      4347.83,
+    )).toBe('3 unpaid days at PKR 4,347.83 per day. Unpaid: 12–14 Mar.');
+  });
+
+  it('writes a single day without a range', () => {
+    expect(describeUnpaidLeave(
+      [{ leaveType: 'Unpaid', from: d('2026-03-20'), to: d('2026-03-20'), days: 1 }],
+      4000,
+    )).toBe('1 unpaid day at PKR 4,000.00 per day. Unpaid: 20 Mar.');
+  });
+
+  it('groups several stretches of the same type onto one line', () => {
+    expect(describeUnpaidLeave(
+      [
+        { leaveType: 'Unpaid', from: d('2026-03-12'), to: d('2026-03-13'), days: 2 },
+        { leaveType: 'Unpaid', from: d('2026-03-20'), to: d('2026-03-20'), days: 1 },
+      ],
+      4000,
+    )).toBe('3 unpaid days at PKR 4,000.00 per day. Unpaid: 12–13 Mar, 20 Mar.');
+  });
+
+  it('keeps different leave types apart', () => {
+    const note = describeUnpaidLeave(
+      [
+        { leaveType: 'Unpaid', from: d('2026-03-12'), to: d('2026-03-12'), days: 1 },
+        { leaveType: 'Sabbatical', from: d('2026-03-23'), to: d('2026-03-24'), days: 2 },
+      ],
+      4000,
+    );
+    expect(note).toContain('Unpaid: 12 Mar');
+    expect(note).toContain('Sabbatical: 23–24 Mar');
+  });
+
+  it('spells out both months when a spell crosses one', () => {
+    // Clipping should prevent this, but a note that silently dropped the
+    // month would be unreadable if it ever happened.
+    expect(describeUnpaidLeave(
+      [{ leaveType: 'Unpaid', from: d('2026-03-30'), to: d('2026-04-02'), days: 4 }],
+      4000,
+    )).toContain('30 Mar–2 Apr');
+  });
+
+  it('reports the total across every stretch, not the longest', () => {
+    const note = describeUnpaidLeave(
+      [
+        { leaveType: 'Unpaid', from: d('2026-03-02'), to: d('2026-03-06'), days: 5 },
+        { leaveType: 'Unpaid', from: d('2026-03-16'), to: d('2026-03-17'), days: 2 },
+      ],
+      1000,
+    );
+    expect(note).toContain('7 unpaid days');
   });
 });

@@ -7,9 +7,12 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceService } from '../attendance/attendance.service.js';
 import { Role } from '../../common/enums/role.enum.js';
 import type { JwtUser } from '../../common/types/jwt-user.js';
-import { totalsFrom, dateOnly } from '../attendance/attendance-policy.js';
 import {
-  calculateNetSalary, flagPayslip, round2, type PayrollResult,
+  totalsFrom, dateOnly, workingDatesIn,
+} from '../attendance/attendance-policy.js';
+import {
+  calculateNetSalary, describeUnpaidLeave, flagPayslip, round2,
+  type PayrollResult, type UnpaidLeaveSpell,
 } from './payroll-policy.js';
 import type { AdjustPayslipDto, UpdateSalaryDto } from './dto/payroll.dto.js';
 
@@ -75,7 +78,7 @@ export class PayrollService {
       throw new BadRequestException('There are no employees to pay for that month');
     }
 
-    const unpaidLeave = await this.unpaidLeaveDaysByEmployee(from, to);
+    const unpaidLeave = await this.unpaidLeaveByEmployee(from, to);
     const run = await this.prisma.payrollRun.create({
       data: { month, year, status: 'DRAFT' },
     });
@@ -98,7 +101,7 @@ export class PayrollService {
         baseSalary: Number(e.baseSalary),
         allowances: Number(e.allowances),
         overtimeMinutes: totals.overtimeMinutes,
-        unpaidLeaveDays: unpaidLeave.get(e.id) ?? 0,
+        unpaidLeaveDays: unpaidLeave.get(e.id)?.days ?? 0,
         workingDaysInMonth,
         payableDays: this.payableDays(e.joiningDate, from, to, workingDaysInMonth),
         standardWorkHours: policy.standardWorkHours,
@@ -108,8 +111,20 @@ export class PayrollService {
         otherDeductions: 0,
       });
 
+      // The explanation is produced with the figure and frozen beside it.
+      // Deriving it later would mean re-reading leave records that may have
+      // been corrected since, and quietly describing a different payslip.
+      const unpaid = unpaidLeave.get(e.id);
+
       await this.prisma.payslip.create({
-        data: { payrollRunId: run.id, employeeId: e.id, ...this.toColumns(result) },
+        data: {
+          payrollRunId: run.id,
+          employeeId: e.id,
+          ...this.toColumns(result),
+          leaveDeductionNote: unpaid
+            ? describeUnpaidLeave(unpaid.spells, result.workings.perDayRate)
+            : null,
+        },
       });
     }
 
@@ -229,6 +244,20 @@ export class PayrollService {
     const bonus = round2(dto.bonus ?? Number(slip.bonus));
     const otherDeductions = round2(dto.otherDeductions ?? Number(slip.otherDeductions));
 
+    // A figure without a reason is one nobody can answer a question about
+    // six months later. Required only when there is something to explain:
+    // clearing an amount back to zero needs no justification.
+    const bonusReason = dto.bonusReason?.trim() || slip.bonusReason;
+    const otherDeductionsReason =
+      dto.otherDeductionsReason?.trim() || slip.otherDeductionsReason;
+
+    if (bonus > 0 && !bonusReason) {
+      throw new BadRequestException('Say what the bonus is for');
+    }
+    if (otherDeductions > 0 && !otherDeductionsReason) {
+      throw new BadRequestException('Say what is being deducted and why');
+    }
+
     const gross = round2(
       Number(slip.baseSalary) + Number(slip.allowances) +
       Number(slip.overtimeAmount) + bonus,
@@ -243,7 +272,13 @@ export class PayrollService {
 
     const updated = await this.prisma.payslip.update({
       where: { id: payslipId },
-      data: { bonus, otherDeductions, duesDeduction, netSalary },
+      data: {
+        bonus, otherDeductions, duesDeduction, netSalary,
+        // Cleared back to zero: drop the reason with the figure rather than
+        // leaving an explanation for an amount that is no longer there.
+        bonusReason: bonus > 0 ? bonusReason : null,
+        otherDeductionsReason: otherDeductions > 0 ? otherDeductionsReason : null,
+      },
     });
 
     await this.prisma.auditLog.create({
@@ -253,7 +288,8 @@ export class PayrollService {
         entity: 'payslip',
         entityId: payslipId,
         metadata: {
-          reason: dto.reason,
+          bonusReason: bonus > 0 ? bonusReason : null,
+          otherDeductionsReason: otherDeductions > 0 ? otherDeductionsReason : null,
           before: {
             bonus: Number(slip.bonus),
             otherDeductions: Number(slip.otherDeductions),
@@ -522,19 +558,62 @@ export class PayrollService {
 
   // ── Internals ───────────────────────────────────────────────────────
 
-  private async unpaidLeaveDaysByEmployee(from: Date, to: Date) {
-    const leave = await this.prisma.leaveRequest.findMany({
-      where: {
-        status: 'APPROVED',
-        leaveType: { isPaid: false },
-        startDate: { lte: to },
-        endDate: { gte: from },
-      },
-      select: { employeeId: true, days: true },
-    });
-    const map = new Map<number, number>();
+  /**
+   * Unpaid leave in this month, per employee, with the detail behind it.
+   *
+   * Each spell is clipped to the payroll month and re-counted in working
+   * days. Previously the stored `days` of the whole request was added to
+   * every month the request touched, so a week off across month end was
+   * deducted twice — once in full from each payslip. Clipping is what makes
+   * the figure match the employee's own calendar.
+   */
+  private async unpaidLeaveByEmployee(from: Date, to: Date) {
+    const [leave, holidayRows] = await Promise.all([
+      this.prisma.leaveRequest.findMany({
+        where: {
+          status: 'APPROVED',
+          leaveType: { isPaid: false },
+          startDate: { lte: to },
+          endDate: { gte: from },
+        },
+        select: {
+          employeeId: true, startDate: true, endDate: true,
+          leaveType: { select: { name: true } },
+        },
+        orderBy: { startDate: 'asc' },
+      }),
+      this.prisma.holiday.findMany({
+        where: { date: { gte: from, lte: to } },
+        select: { date: true },
+      }),
+    ]);
+
+    const holidays = new Set(
+      holidayRows.map((h) => h.date.toISOString().slice(0, 10)),
+    );
+    const policy = this.attendance.policy;
+
+    const map = new Map<number, { days: number; spells: UnpaidLeaveSpell[] }>();
     for (const l of leave) {
-      map.set(l.employeeId, (map.get(l.employeeId) ?? 0) + Number(l.days));
+      const start = l.startDate < from ? from : l.startDate;
+      const end = l.endDate > to ? to : l.endDate;
+      // Weekends and holidays inside a spell were never working days, so
+      // they are not pay to withhold.
+      const dates = workingDatesIn(start, end, policy, holidays);
+      if (dates.length === 0) continue;
+
+      const entry = map.get(l.employeeId) ?? { days: 0, spells: [] };
+      entry.days += dates.length;
+      entry.spells.push({
+        leaveType: l.leaveType.name,
+        // The first and last days actually withheld, not the clip
+        // boundaries. A spell ending on the 31st when the 31st is a
+        // Saturday reads as four days against a figure of three.
+        from: dates[0],
+        to: dates[dates.length - 1],
+        days: dates.length,
+      });
+      map.set(l.employeeId, entry);
     }
     return map;
   }
@@ -573,7 +652,14 @@ export class PayrollService {
 
   private numeric<T extends Record<string, unknown>>(p: T) {
     const n = (v: unknown) => Number(v ?? 0);
+    const text = (v: unknown) => (typeof v === 'string' ? v : null);
     return {
+      // The three explanations travel with the figures they explain. A
+      // response carrying an amount without its reason is one the caller
+      // has to make a second request to understand.
+      leaveDeductionNote: text(p.leaveDeductionNote),
+      bonusReason: text(p.bonusReason),
+      otherDeductionsReason: text(p.otherDeductionsReason),
       baseSalary: n(p.baseSalary),
       allowances: n(p.allowances),
       overtimeAmount: n(p.overtimeAmount),

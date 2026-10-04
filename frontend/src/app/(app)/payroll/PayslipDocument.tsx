@@ -96,13 +96,23 @@ export function PayslipDocument({ p }: { p: MyPayslip }) {
           <Row label="Basic salary" value={p.baseSalary} />
           <Row label="Allowances" value={p.allowances} />
           <Row label="Overtime" value={p.overtimeAmount} />
-          <Row label="Bonus" value={p.bonus} />
+          <Row label="Bonus" value={p.bonus} note={p.bonusReason} />
           <Row label="Gross earnings" value={p.gross} total />
         </div>
         <div className="px-8 py-5">
           <SectionLabel>Deductions</SectionLabel>
-          <Row label="Unpaid leave" value={p.unpaidLeaveDeduction} />
-          <Row label="Other deductions" value={p.otherDeductions} />
+          {/* Every deduction carries the reason it was taken. An employee
+              asking "what is this?" should not have to ask anybody. */}
+          <Row
+            label="Unpaid leave"
+            value={p.unpaidLeaveDeduction}
+            note={p.leaveDeductionNote}
+          />
+          <Row
+            label="Other deductions"
+            value={p.otherDeductions}
+            note={p.otherDeductionsReason}
+          />
           <Row label="Loan / advance recovery" value={p.duesDeduction} />
           <Row label="Total deductions" value={p.totalDeductions} total />
         </div>
@@ -169,18 +179,33 @@ function Field({
   );
 }
 
-function Row({ label, value, total }: { label: string; value: number; total?: boolean }) {
+function Row({
+  label, value, total, note,
+}: {
+  label: string;
+  value: number;
+  total?: boolean;
+  /** Why this figure is what it is. Only drawn when there is a figure. */
+  note?: string | null;
+}) {
   return (
     <div className={cn(
-      'flex items-baseline justify-between py-[5px] text-body-sm',
+      'py-[5px] text-body-sm',
       total && 'mt-1.5 border-t border-line-default pt-2 font-bold',
     )}>
-      <span className={total ? 'text-content-primary' : 'text-content-secondary'}>
-        {label}
-      </span>
-      <span className={cn('tabular', value === 0 && !total && 'text-content-tertiary')}>
-        {formatCurrency(value)}
-      </span>
+      <div className="flex items-baseline justify-between">
+        <span className={total ? 'text-content-primary' : 'text-content-secondary'}>
+          {label}
+        </span>
+        <span className={cn('tabular', value === 0 && !total && 'text-content-tertiary')}>
+          {formatCurrency(value)}
+        </span>
+      </div>
+      {note && value !== 0 && (
+        <p className="mt-0.5 max-w-[34ch] text-caption leading-snug text-content-tertiary">
+          {note}
+        </p>
+      )}
     </div>
   );
 }

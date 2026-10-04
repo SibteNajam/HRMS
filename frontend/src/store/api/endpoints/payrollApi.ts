@@ -21,6 +21,16 @@ export interface PayslipFigures {
   netSalary: number;
   gross: number;
   totalDeductions: number;
+
+  /**
+   * Why the unpaid-leave figure is what it is — the days, the dates and the
+   * per-day rate. Computed from approved leave when the run was created and
+   * frozen with the payslip. Null when there was no unpaid leave.
+   */
+  leaveDeductionNote: string | null;
+  /** HR's own words for the two figures only HR can set. */
+  bonusReason: string | null;
+  otherDeductionsReason: string | null;
 }
 
 export interface RunPayslip extends PayslipFigures {
@@ -134,7 +144,15 @@ export const payrollApi = baseApi.injectEndpoints({
 
     adjustPayslip: build.mutation<
       PayslipFigures,
-      { runId: number; payslipId: number; bonus?: number; otherDeductions?: number; reason: string }
+      {
+        runId: number;
+        payslipId: number;
+        bonus?: number;
+        otherDeductions?: number;
+        /** Required by the server whenever the matching figure is above zero. */
+        bonusReason?: string;
+        otherDeductionsReason?: string;
+      }
     >({
       query: ({ runId, payslipId, ...body }) => ({
         url: `/payroll/runs/${runId}/payslips/${payslipId}`, method: 'PATCH', body,

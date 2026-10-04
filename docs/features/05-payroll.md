@@ -90,6 +90,59 @@ built last.
 | Dues recovered | **Dues** — monthly installment, capped |
 | Bonus, other deductions | HR, while the run is DRAFT |
 
+### Two deductions, and only one is HR's to set
+
+The adjust dialog used to offer a single "Other deductions" box and show the
+unpaid-leave figure nowhere at all. HR had to work out what the deduction was
+for by opening the leave module, and the employee had no way to check it.
+
+Deductions are now two lines, each with its reason:
+
+| Line | Amount | Reason |
+|---|---|---|
+| **Leave deduction** | Computed | Computed — days, dates, per-day rate |
+| **Other deduction** | HR types it | HR types it |
+
+The leave line is read-only. A figure HR can type over is a figure nobody can
+trace back to a leave request, and this one is derived from records the
+employee can check against their own calendar.
+
+### The leave reason is computed, not written
+
+`describeUnpaidLeave()` builds the sentence from the approved leave records:
+
+```
+3 unpaid days at PKR 4,909.09 per day. Unpaid: 28–30 Oct.
+```
+
+**No model is involved.** The dates and the rate are the two things an
+employee checks first, and a model stating which days somebody was off is
+exactly the claim most likely to be wrong — in the one place where being
+wrong costs them money. Computing it is both correct and reproducible.
+
+It is stored on the payslip rather than derived on read, because a payslip is
+a snapshot: re-deriving it later would describe leave records that may have
+been corrected since, against a figure that was frozen months ago.
+
+### A figure without a reason is refused
+
+`bonusReason` and `otherDeductionsReason` are each required when their amount
+is above zero, and dropped when it returns to zero — clearing an amount needs
+no justification. Both are stored on the payslip **and** in the audit log, so
+an employee asking in six months gets the reason that applied at the time.
+
+### Fixed along the way: leave across a month boundary
+
+Unpaid days were counted from the request's stored `days` for every month the
+request touched. A week off from 28 Oct to 3 Nov was deducted **in full from
+both October and November** — paying for it twice.
+
+Each spell is now clipped to the payroll month and re-counted in working
+days, so weekends and holidays inside it are not withheld either. The dates
+shown are the first and last day actually withheld, not the clip boundary: a
+spell ending on a Saturday the 31st reads as `28–30 Oct`, which agrees with
+the three days it charges for.
+
 ## The calculation
 
 A pure function. No database, no I/O, no AI. Fully unit-tested.

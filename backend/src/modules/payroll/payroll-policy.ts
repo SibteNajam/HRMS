@@ -229,3 +229,80 @@ export function flagPayslip(
 
   return flags;
 }
+
+
+// ─── Explaining the unpaid-leave deduction ──────────────────────────────
+
+/**
+ * One stretch of unpaid leave, already clipped to the payroll month.
+ *
+ * `days` is working days inside the month — not the length of the spell. A
+ * week off that straddles month end is deducted across two payslips, each
+ * for the part that falls in it, which is the only arithmetic an employee
+ * can check against their own calendar.
+ */
+export interface UnpaidLeaveSpell {
+  leaveType: string;
+  from: Date;
+  to: Date;
+  days: number;
+}
+
+/**
+ * The sentence that appears beside the leave deduction.
+ *
+ * Built from the approved leave records, not written by a model. The dates
+ * and the rate are the two things an employee will check, and a figure that
+ * cannot be reproduced from the record is a figure that cannot be defended
+ * in the conversation that follows.
+ */
+export function describeUnpaidLeave(
+  spells: UnpaidLeaveSpell[],
+  perDayRate: number,
+  currency = 'PKR',
+): string | null {
+  const taken = spells.filter((s) => s.days > 0);
+  if (taken.length === 0) return null;
+
+  const totalDays = round2(taken.reduce((sum, s) => sum + s.days, 0));
+
+  // Grouped by type so "Unpaid leave: …" reads once even when somebody took
+  // several separate stretches of it.
+  const byType = new Map<string, UnpaidLeaveSpell[]>();
+  for (const spell of taken) {
+    byType.set(spell.leaveType, [...(byType.get(spell.leaveType) ?? []), spell]);
+  }
+
+  const detail = [...byType.entries()]
+    .map(([type, list]) => `${type}: ${list.map(describeSpan).join(', ')}`)
+    .join('; ');
+
+  return (
+    `${totalDays} unpaid day${totalDays === 1 ? '' : 's'} at ` +
+    `${currency} ${money(perDayRate)} per day. ${detail}.`
+  );
+}
+
+/** "12–14 Mar", or "20 Mar" when it is a single day. */
+function describeSpan(spell: UnpaidLeaveSpell): string {
+  const from = day(spell.from);
+  const to = day(spell.to);
+  if (from === to) return from;
+
+  // "12–14 Mar" rather than "12 Mar–14 Mar" when the month is shared.
+  const [fromDay, fromMonth] = from.split(' ');
+  const [, toMonth] = to.split(' ');
+  return fromMonth === toMonth ? `${fromDay}–${to}` : `${from}–${to}`;
+}
+
+function day(date: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric', month: 'short', timeZone: 'UTC',
+  }).format(date);
+}
+
+function money(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(value);
+}

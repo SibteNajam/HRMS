@@ -10,6 +10,7 @@ import {
   describeWindow, generateSlots, InvalidWindow, validateWindow,
   type InterviewWindow,
 } from './interview-schedule.js';
+import { buildInvite } from './calendar-invite.js';
 
 /**
  * Interview times, and candidates booking them.
@@ -407,6 +408,13 @@ export class InterviewService implements OnModuleInit {
         (note ? `${note}\n\n` : '') +
         `If anything changes, reply to this email and we will sort it out.`,
       action: { label: 'Join the interview', url: link },
+      // Same UID, higher sequence: the client updates the event already
+      // in their calendar rather than adding a second one beside it.
+      calendar: this.inviteFor(
+        interview.application,
+        { ...updated, slot: interview.slot },
+        1,
+      ),
     });
 
     this.logger.log(`Interview ${id}: joining details sent`);
@@ -443,9 +451,63 @@ export class InterviewService implements OnModuleInit {
         label: 'Choose another time',
         url: `${base}/apply/${interview.application.bookingToken}`,
       },
+      // Takes it back out of their calendar, rather than leaving an
+      // appointment nobody is going to.
+      calendar: this.inviteFor(interview.application, interview, 2, true),
     });
 
     return { message: 'Interview cancelled and the candidate told' };
+  }
+
+  /**
+   * The calendar event for one interview.
+   *
+   * The UID is derived from the interview id and never changes, so a
+   * later send updates the appointment already in their calendar instead
+   * of adding another one next to it. The sequence is what tells the
+   * client which version is newer.
+   */
+  private inviteFor(
+    application: {
+      candidateName: string;
+      candidateEmail: string;
+      posting: { title: string } | null;
+    },
+    interview: {
+      id: number;
+      meetingLink: string | null;
+      slot: { startsAt: Date; endsAt: Date };
+    },
+    sequence: number,
+    cancelled = false,
+  ) {
+    const role = application.posting?.title ?? 'a role';
+    const company = this.config.get<string>('COMPANY_NAME') ?? 'AI-HRMS';
+
+    return {
+      fileName: 'interview.ics',
+      method: (cancelled ? 'CANCEL' : 'REQUEST') as 'REQUEST' | 'CANCEL',
+      content: buildInvite({
+        uid: `interview-${interview.id}@ai-hrms`,
+        sequence,
+        startsAt: interview.slot.startsAt,
+        endsAt: interview.slot.endsAt,
+        title: `${role} interview — ${company}`,
+        description: interview.meetingLink
+          ? `Join here: ${interview.meetingLink}`
+          : 'Joining details to follow by email.',
+        location: interview.meetingLink ?? undefined,
+        organiser: {
+          name: company,
+          email: this.config.get<string>('SMTP_USER') || 'hr@example.com',
+        },
+        attendee: {
+          name: application.candidateName,
+          email: application.candidateEmail,
+        },
+        cancelled,
+      }),
+    };
   }
 
   private async confirm(applicationId: number) {
@@ -471,7 +533,9 @@ export class InterviewService implements OnModuleInit {
         (application.interview.meetingLink
           ? `Join here: ${application.interview.meetingLink}\n\n`
           : `We will send joining details nearer the time.\n\n`) +
+        `The invitation attached will add it to your calendar.\n\n` +
         `If you need to change it, reply to this email.`,
+      calendar: this.inviteFor(application, application.interview, 0),
     });
   }
 }

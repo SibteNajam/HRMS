@@ -10,6 +10,14 @@ export interface Mail {
   body: string;
   /** Optional call to action rendered as a button. */
   action?: { label: string; url: string };
+  /**
+   * A calendar event the client should offer to add.
+   *
+   * Sent with the text/calendar type rather than as a plain file, which
+   * is what makes Gmail and Outlook show an "add to calendar" card
+   * instead of an attachment nobody opens.
+   */
+  calendar?: { fileName: string; content: string; method: 'REQUEST' | 'CANCEL' };
 }
 
 /**
@@ -96,6 +104,19 @@ export class MailService {
         subject: mail.subject,
         text: mail.body + (mail.action ? `\n\n${mail.action.label}: ${mail.action.url}` : ''),
         html: this.html(mail),
+        // `icalEvent` alone is right: nodemailer builds both the
+        // text/calendar alternative that clients render as an "add to
+        // calendar" card AND the downloadable attachment. Adding an
+        // attachment beside it produced three copies of the same file.
+        ...(mail.calendar
+          ? {
+              icalEvent: {
+                method: mail.calendar.method,
+                content: mail.calendar.content,
+                filename: mail.calendar.fileName,
+              },
+            }
+          : {}),
       });
       await this.record(mail, 'SENT');
       this.logger.log(`Sent "${mail.subject}" to ${mail.to}`);

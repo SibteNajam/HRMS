@@ -15,7 +15,10 @@ function facts(overrides: Partial<Facts> = {}): Facts {
       presentDays: 60, lateCount: 0, absentDays: 2, onLeaveDays: 1, workingDays: 64,
       ...overrides.attendance,
     },
-    balance: { allocated: 14, used: 4, remaining: 10, afterApproval: 7, ...overrides.balance },
+    balance: {
+      tracked: true, allocated: 14, used: 4, remaining: 10, afterApproval: 7,
+      ...overrides.balance,
+    },
     history: {
       daysTakenThisYear: 4, requestsThisYear: 2, rejectedThisYear: 0, tenureMonths: 30,
       ...overrides.history,
@@ -60,7 +63,7 @@ describe('rules', () => {
   });
 
   it('flags a request longer than the balance left', () => {
-    expect(codes(facts({ balance: { allocated: 14, used: 12, remaining: 2, afterApproval: -3 } })))
+    expect(codes(facts({ balance: { tracked: true, allocated: 14, used: 12, remaining: 2, afterApproval: -3 } })))
       .toContain('INSUFFICIENT_BALANCE');
   });
 
@@ -119,7 +122,7 @@ describe('the verdict floor', () => {
   });
 
   it('rejects when a blocking rule fires', () => {
-    const over = facts({ balance: { allocated: 14, used: 14, remaining: 0, afterApproval: -2 } });
+    const over = facts({ balance: { tracked: true, allocated: 14, used: 14, remaining: 0, afterApproval: -2 } });
     expect(verdictFloor(evaluateRules(over, GOOD_REASON))).toBe('REJECT');
   });
 
@@ -145,7 +148,7 @@ describe('the verdict floor', () => {
     for (const f of [
       facts(),
       facts({ attendance: { ...facts().attendance, percentage: 55 } }),
-      facts({ balance: { allocated: 5, used: 5, remaining: 0, afterApproval: -1 } }),
+      facts({ balance: { tracked: true, allocated: 5, used: 5, remaining: 0, afterApproval: -1 } }),
     ]) {
       expect(floorFromFlags(buildFlags(f, GOOD_REASON)))
         .toBe(verdictFloor(evaluateRules(f, GOOD_REASON)));
@@ -316,7 +319,7 @@ describe('the staleness fingerprint', () => {
   });
 
   it('changes when the balance moves', () => {
-    const after = facts({ balance: { allocated: 14, used: 6, remaining: 8, afterApproval: 5 } });
+    const after = facts({ balance: { tracked: true, allocated: 14, used: 6, remaining: 8, afterApproval: 5 } });
     expect(hash(after)).not.toBe(hash(facts()));
   });
 
@@ -442,7 +445,7 @@ describe('approving without a person', () => {
     for (const f of [
       facts(),
       facts({ attendance: { ...facts().attendance, percentage: 55 } }),
-      facts({ balance: { allocated: 5, used: 5, remaining: 0, afterApproval: -1 } }),
+      facts({ balance: { tracked: true, allocated: 5, used: 5, remaining: 0, afterApproval: -1 } }),
       facts({ staffing: { teams: [team({ availableIfApproved: 2 })] } }),
       facts({ staffing: { teams: [team()] } }),
     ]) {
@@ -482,5 +485,53 @@ describe('the note HR reads', () => {
   it('falls back to the department for somebody on no project', () => {
     const note = autoApprovalNote(facts(), 'Annual');
     expect(note).toContain('1 of 8 in the department are off');
+  });
+});
+
+describe('leave with no quota', () => {
+  // Unpaid leave has no entitlement to exceed: the approve endpoint skips
+  // the balance check for it, and the rules must agree or they describe a
+  // refusal that would never happen.
+  const unpaid = (over: Partial<Facts['balance']> = {}) =>
+    facts({
+      balance: {
+        tracked: false, allocated: 0, used: 0, remaining: 0, afterApproval: -2,
+        ...over,
+      },
+    });
+
+  it('does not claim the balance is insufficient', () => {
+    expect(codes(unpaid())).not.toContain('INSUFFICIENT_BALANCE');
+  });
+
+  it('still blocks a tracked type that goes negative', () => {
+    expect(codes(facts({
+      balance: { tracked: true, allocated: 14, used: 14, remaining: 0, afterApproval: -2 },
+    }))).toContain('INSUFFICIENT_BALANCE');
+  });
+
+  it('says the days come out of pay instead', () => {
+    const hit = evaluateRules(unpaid(), GOOD_REASON)
+      .find((h) => h.rule.code === 'UNPAID_LEAVE');
+    expect(hit?.flag.label).toBe('Unpaid leave');
+    expect(hit?.flag.detail).toContain('deducted from their pay');
+  });
+
+  it('treats that as a note, so it can still go through on its own', () => {
+    // The cost falls on the employee, who asked for it. Staffing still
+    // applies — this only stops the balance from blocking it.
+    expect(autoApprovable(evaluateRules(unpaid(), GOOD_REASON))).toBe(true);
+  });
+
+  it('does not report an entitlement as exhausted when there is none', () => {
+    expect(codes(unpaid({ afterApproval: 0 }))).not.toContain('BALANCE_EXHAUSTED');
+  });
+
+  it('is still held when a project would go understaffed', () => {
+    const short = facts({
+      balance: { tracked: false, allocated: 0, used: 0, remaining: 0, afterApproval: -2 },
+      staffing: { teams: [team({ alreadyOff: 4, availableIfApproved: 3 })] },
+    });
+    expect(autoApprovable(evaluateRules(short, GOOD_REASON))).toBe(false);
   });
 });

@@ -97,6 +97,15 @@ export interface DecisionContext {
     workingDays: number;
   };
   balance: {
+    /**
+     * Whether this leave type has a quota at all.
+     *
+     * Unpaid leave does not: there is no entitlement to exhaust, and the
+     * approve endpoint skips the balance check for it entirely. Without
+     * this flag the allocation of zero reads as "nothing left", and a
+     * blocking rule fires on a request the system would happily approve.
+     */
+    tracked: boolean;
     allocated: number;
     used: number;
     remaining: number;
@@ -169,7 +178,9 @@ export const DECISION_RULES: DecisionRule[] = [
     meaning:
       'The request is longer than the balance left. The system refuses this ' +
       'approval, so it cannot be granted as it stands.',
-    applies: ({ ctx }) => ctx.balance.afterApproval < 0,
+    // Only for a type with an entitlement to exceed. Unpaid leave is paid
+    // for out of salary, not out of a balance.
+    applies: ({ ctx }) => ctx.balance.tracked && ctx.balance.afterApproval < 0,
     describe: ({ ctx }) => ({
       label: 'Exceeds balance',
       detail:
@@ -339,11 +350,25 @@ export const DECISION_RULES: DecisionRule[] = [
     }),
   },
   {
+    code: 'UNPAID_LEAVE',
+    level: 'info',
+    weight: 'note',
+    meaning:
+      'This type has no entitlement — every approved day is deducted from ' +
+      'the employee\'s pay for that month. Worth knowing, not a reason to refuse.',
+    applies: ({ ctx }) => !ctx.balance.tracked,
+    describe: () => ({
+      label: 'Unpaid leave',
+      detail: 'Each approved day is deducted from their pay for that month.',
+    }),
+  },
+  {
     code: 'BALANCE_EXHAUSTED',
     level: 'info',
     weight: 'note',
     meaning: 'The request uses the entire remaining entitlement, leaving nothing for the rest of the year.',
     applies: ({ ctx }) =>
+      ctx.balance.tracked &&
       ctx.balance.afterApproval === 0 && ctx.balance.allocated > 0,
     describe: () => ({
       label: 'Uses remaining balance',
@@ -499,6 +524,7 @@ export function contextFingerprint(ctx: Facts, reason: string): string {
     ctx.attendance.lateCount,
     ctx.attendance.absentDays,
     ctx.attendance.workingDays,
+    ctx.balance.tracked,
     ctx.balance.allocated,
     ctx.balance.used,
     ctx.balance.remaining,

@@ -238,6 +238,11 @@ export interface DecisionContext {
     workingDays: number;
   };
   balance: {
+    /**
+     * Whether this leave type has a quota at all. Unpaid leave does not —
+     * an allocation of zero is not an exhausted entitlement.
+     */
+    tracked: boolean;
     allocated: number;
     used: number;
     remaining: number;

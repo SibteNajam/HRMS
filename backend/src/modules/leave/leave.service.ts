@@ -793,7 +793,7 @@ export class LeaveService {
             id: true, departmentId: true, joiningDate: true, designation: true,
           },
         },
-        leaveType: { select: { id: true } },
+        leaveType: { select: { id: true, annualQuota: true } },
       },
     });
 
@@ -994,6 +994,7 @@ export class LeaveService {
         workingDays: cur.workingDays,
       },
       balance: {
+        tracked: request.leaveType.annualQuota > 0,
         allocated: line?.allocated ?? 0,
         used: line?.used ?? 0,
         remaining,

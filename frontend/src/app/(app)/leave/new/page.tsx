@@ -62,7 +62,17 @@ export default function NewLeavePage() {
 
   const days = useMemo(() => workingDays(start, end), [start, end]);
   const line = balance?.find((b) => String(b.leaveType.id) === typeId);
-  const after = line ? line.remaining - days : null;
+
+  /**
+   * Unpaid leave has no quota, so it has no balance to run out of — the
+   * server skips the balance check for it entirely and takes the pay
+   * instead. A balance row still exists with an allocation of zero, and
+   * treating that as "nothing remaining" left the submit button dead with
+   * nothing on screen explaining why.
+   */
+  const tracked = (line?.leaveType.annualQuota ?? 0) > 0;
+  const after = tracked && line ? line.remaining - days : null;
+  const overBalance = after !== null && after < 0;
 
   const approver =
     me.role === 'EMPLOYEE'
@@ -126,13 +136,20 @@ export default function NewLeavePage() {
                   <span className="tabular">{days}</span> working day{days === 1 ? '' : 's'}
                   <span className="font-normal text-content-secondary"> · weekends excluded</span>
                 </p>
-                {line && line.leaveType.annualQuota > 0 && (
-                  <p className={after !== null && after < 0 ? 'text-danger' : 'text-content-secondary'}>
-                    {after !== null && after < 0
+                {tracked && line ? (
+                  <p className={overBalance ? 'text-danger' : 'text-content-secondary'}>
+                    {overBalance
                       ? `You only have ${line.remaining} day${line.remaining === 1 ? '' : 's'} remaining.`
                       : `Balance would go from ${line.remaining} to ${after}.`}
                   </p>
-                )}
+                ) : line ? (
+                  // Say the cost out loud. Unpaid leave is the one type
+                  // where approval is easy and the consequence is not.
+                  <p className="text-content-secondary">
+                    Unpaid — {days} day{days === 1 ? '' : 's'} will be deducted
+                    from your pay for that month.
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -168,7 +185,7 @@ export default function NewLeavePage() {
               variant="primary"
               icon={CalendarPlus}
               loading={isLoading}
-              disabled={after !== null && after < 0}
+              disabled={overBalance}
             >
               Submit request
             </Button>

@@ -96,11 +96,12 @@ All in `leave-decision-context.ts`, all constants:
 | `LOW_ATTENDANCE` | below **80%** — the figure the report names |
 | `DECLINING_ATTENDANCE` | down more than **15 points** on the previous period |
 | `REPEATED_LATENESS` | **3 or more** late arrivals in 90 days |
-| `INSUFFICIENT_BALANCE` | approval would take the balance below zero |
+| `INSUFFICIENT_BALANCE` | approval would take the balance below zero — **quota types only** |
 | `TEAM_COVERAGE` | **40%+** of the department already off in the range |
 | `ROLE_UNCOVERED` | everyone else with the **same job title** is off across these dates |
 | `PROJECT_UNDERSTAFFED` | approving would take a project team below its **minimum staffing** |
 | `PROJECT_ROLE_UNCOVERED` | everyone else doing this job **on a project team** is off |
+| `UNPAID_LEAVE` | the type has no quota — each day comes out of pay |
 | `THIN_REASON` | reason under 25 characters |
 | `NEW_JOINER` | under 3 months' tenure |
 

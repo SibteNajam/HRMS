@@ -306,3 +306,51 @@ function money(value: number): string {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(value);
 }
+
+
+// ─── When a month may be paid ───────────────────────────────────────────
+
+/**
+ * The last moment of a payroll month, in UTC.
+ *
+ * `Date.UTC(year, month, 0)` is the last day; the time is pushed to the end
+ * of it so a run created during the 31st is still recognised as running
+ * before the month is over.
+ */
+export function endOfPayrollMonth(month: number, year: number): Date {
+  return new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+}
+
+/**
+ * Whether a month is finished and can therefore be paid.
+ *
+ * Every variable figure on a payslip accumulates through the month:
+ * overtime comes from check-in and check-out records, unpaid leave from
+ * requests people are still submitting, attendance percentage from days
+ * that have not happened yet. A run created on the 1st produces a payslip
+ * for a month nobody has worked — zero overtime and zero deductions for
+ * everybody — and because a draft never recomputes, it stays wrong.
+ *
+ * So the month has to be over. The system pays in arrears, which is also
+ * what the Payment of Wages Act expects: wages for a period, paid shortly
+ * after that period ends.
+ */
+export function monthHasEnded(month: number, year: number, now: Date): boolean {
+  return now > endOfPayrollMonth(month, year);
+}
+
+/**
+ * The first day payroll for this month may be created: the day after it
+ * ends. Not the last day of the month — somebody can still work the 31st,
+ * and somebody else can take leave on it.
+ */
+export function payrollOpensOn(month: number, year: number): Date {
+  return new Date(Date.UTC(year, month, 1));
+}
+
+/** "October 2026" — for a message a person reads. */
+export function payrollMonthName(month: number, year: number): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    month: 'long', year: 'numeric', timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}

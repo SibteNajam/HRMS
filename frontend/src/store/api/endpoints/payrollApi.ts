@@ -71,6 +71,17 @@ export interface RunDetail extends PayrollRun {
     overtime: number; duesRecovered: number;
   };
   flaggedCount: number;
+  /**
+   * Set when records behind this draft changed after it was calculated.
+   * A payslip is a snapshot and nothing recomputes it, so the figures here
+   * are out of date until the draft is created again. Null on a finalised
+   * run — by then the correct place for a late item is the next month.
+   */
+  staleness: {
+    leaveApproved: number;
+    attendanceAdded: number;
+    message: string;
+  } | null;
 }
 
 export interface MyPayslip extends PayslipFigures {

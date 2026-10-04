@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  CircleAlert, CircleCheck, Info, Lock, PenLine, ShieldCheck, Trash2, TriangleAlert,
+  CircleAlert, CircleCheck, Info, Lock, PenLine, RefreshCw, ShieldCheck,
+  Trash2, TriangleAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -160,6 +161,24 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             </span>{' '}
             These people joined partway through the month, so they are paid for
             the working days they were employed rather than the full month.
+          </p>
+        </div>
+      )}
+
+      {/* Above the anomalies: a stale draft makes every figure below it
+          suspect, so it is the first thing to read. */}
+      {run.staleness && (
+        <div className="mb-5 rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] p-4">
+          <p className="flex items-center gap-2 font-semibold text-danger">
+            <RefreshCw size={17} strokeWidth={2} />
+            These figures are out of date
+          </p>
+          <p className="mt-1.5 max-w-[80ch] text-body-sm text-content-secondary">
+            {run.staleness.message}
+          </p>
+          <p className="mt-2 text-caption text-content-tertiary">
+            Finalising is blocked until then — it cannot be undone, and these
+            payslips would be missing the figures above.
           </p>
         </div>
       )}

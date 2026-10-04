@@ -11,7 +11,8 @@ import {
   totalsFrom, dateOnly, workingDatesIn,
 } from '../attendance/attendance-policy.js';
 import {
-  calculateNetSalary, describeUnpaidLeave, flagPayslip, round2,
+  calculateNetSalary, describeUnpaidLeave, flagPayslip,
+  monthHasEnded, payrollMonthName, payrollOpensOn, round2,
   type PayrollResult, type UnpaidLeaveSpell,
 } from './payroll-policy.js';
 import type { AdjustPayslipDto, UpdateSalaryDto } from './dto/payroll.dto.js';
@@ -47,6 +48,20 @@ export class PayrollService {
    * this is the preview HR checks before an administrator signs it off.
    */
   async createRun(user: JwtUser, month: number, year: number) {
+    // The month has to be over before it can be paid. Overtime, unpaid
+    // leave and attendance all accumulate through it, and a draft never
+    // recomputes — so a run started early is wrong by exactly the work and
+    // absence that follows, permanently.
+    if (!monthHasEnded(month, year, new Date())) {
+      const name = payrollMonthName(month, year);
+      const opens = payrollOpensOn(month, year);
+      throw new BadRequestException(
+        `${name} is not over yet. Payroll runs in arrears, so this one can ` +
+          `be created from ${opens.toISOString().slice(0, 10)} onwards — ` +
+          `by then overtime, leave and attendance for the month are complete.`,
+      );
+    }
+
     const existing = await this.prisma.payrollRun.findUnique({
       where: { month_year: { month, year } },
     });
@@ -210,6 +225,66 @@ export class PayrollService {
       payslips,
       totals,
       flaggedCount: payslips.filter((p) => p.flags.length > 0).length,
+      staleness: await this.draftStaleness(run),
+    };
+  }
+
+  /**
+   * Whether the draft still matches the records it was calculated from.
+   *
+   * A payslip is a snapshot taken when the run is created, and nothing
+   * recomputes it afterwards. Leave approved later — which now happens
+   * without a person, so nobody is watching — would be missing from a
+   * payslip that gets finalised and cannot be reopened.
+   *
+   * Returns null for a finalised run: it is history by then, and the
+   * correct place for a late item is the next month, not this one.
+   */
+  private async draftStaleness(run: { id: number; month: number; year: number;
+    status: string; createdAt: Date }) {
+    if (run.status !== 'DRAFT') return null;
+
+    const from = new Date(Date.UTC(run.year, run.month - 1, 1));
+    const to = new Date(Date.UTC(run.year, run.month, 0));
+
+    const [leaveApproved, attendanceAdded] = await Promise.all([
+      this.prisma.leaveRequest.count({
+        where: {
+          status: 'APPROVED',
+          leaveType: { isPaid: false },
+          startDate: { lte: to },
+          endDate: { gte: from },
+          // Approved after the draft was calculated, so its deduction is
+          // not in any payslip here.
+          reviewedAt: { gt: run.createdAt },
+        },
+      }),
+      this.prisma.attendance.count({
+        where: { date: { gte: from, lte: to }, createdAt: { gt: run.createdAt } },
+      }),
+    ]);
+
+    if (leaveApproved === 0 && attendanceAdded === 0) return null;
+
+    const parts: string[] = [];
+    if (leaveApproved > 0) {
+      parts.push(
+        `${leaveApproved} unpaid leave request${leaveApproved === 1 ? '' : 's'} approved`,
+      );
+    }
+    if (attendanceAdded > 0) {
+      parts.push(
+        `${attendanceAdded} attendance record${attendanceAdded === 1 ? '' : 's'} added`,
+      );
+    }
+
+    return {
+      leaveApproved,
+      attendanceAdded,
+      message:
+        `${parts.join(' and ')} since this draft was calculated. ` +
+        `Those figures are not in it. Delete the draft and create it again ` +
+        `to include them.`,
     };
   }
 
@@ -338,6 +413,15 @@ export class PayrollService {
     }
     if (run.payslips.length === 0) {
       throw new BadRequestException('This run has no payslips');
+    }
+
+    // The last point at which this is still fixable. Finalising freezes
+    // every figure and recovers dues, and there is no way back — so a draft
+    // that no longer matches the records is stopped here rather than paying
+    // somebody an amount the system can already see is out of date.
+    const stale = await this.draftStaleness(run);
+    if (stale) {
+      throw new BadRequestException(`Cannot finalise — ${stale.message}`);
     }
 
     const paidOn = dateOnly(new Date(Date.UTC(run.year, run.month, 0)));

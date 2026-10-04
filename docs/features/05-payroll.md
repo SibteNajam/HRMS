@@ -49,6 +49,55 @@ in April.
 | GET | `/payroll/payslips/:id` | owner, HR | Ownership checked |
 | GET | `/payroll/payslips/:id/pdf` | owner, HR | Download |
 
+## When payroll runs
+
+**In arrears: a month is paid once it is over.** October payroll is created
+on 1 November or later, never during October.
+
+Every variable figure accumulates through the month — overtime from
+check-in and check-out records, unpaid leave from requests people are still
+submitting, attendance percentage from days that have not happened. A run
+created on the 1st produces a payslip for a month nobody has worked: zero
+overtime and zero deductions for everybody. Because **a draft never
+recomputes**, it stays that way.
+
+`monthHasEnded()` enforces it. Creating a run before the month is over is
+refused with the date it opens:
+
+> October 2026 is not over yet. Payroll runs in arrears, so this one can be
+> created from 2026-11-01 onwards — by then overtime, leave and attendance
+> for the month are complete.
+
+The boundary is the end of the last day, not its start: somebody can work
+the 31st, and somebody else can take leave on it.
+
+### A draft that no longer matches the records
+
+Creating at the right time is not enough on its own. Leave can be approved
+after the draft is calculated — and with automatic approval it happens
+without anybody touching the system, so nobody is watching.
+
+`draftStaleness()` compares the records against `run.createdAt` and reports
+unpaid leave approved, and attendance added, since. It is shown two ways:
+
+| Where | What happens |
+|---|---|
+| Run detail screen | A red banner above everything: *"These figures are out of date"* |
+| Finalising | **Refused.** Finalising is irreversible and recovers dues |
+
+The remedy is to delete the draft and create it again — nothing is lost,
+because a draft is not an issued payslip.
+
+### What this system does not have: arrears
+
+Real payroll handles a late item by putting it on the **next** month's
+payslip as an arrears line, never by reopening a closed month. This system
+has no arrears line, which is exactly why the month must be complete before
+the run is created: there is nowhere for a late figure to go afterwards.
+
+That is a deliberate scope decision, not an oversight. Paying in arrears
+removes the need for one.
+
 ## What a "payroll run" is
 
 The word confuses people, so plainly: **a payroll run is processing everyone's

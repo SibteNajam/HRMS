@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calculateNetSalary, describeUnpaidLeave, flagPayslip, round2,
+  calculateNetSalary, describeUnpaidLeave, endOfPayrollMonth, flagPayslip,
+  monthHasEnded, payrollMonthName, payrollOpensOn, round2,
   type PayrollInput,
 } from './payroll-policy.js';
 
@@ -288,5 +289,75 @@ describe('explaining the unpaid-leave deduction', () => {
       1000,
     );
     expect(note).toContain('7 unpaid days');
+  });
+});
+
+describe('when a month may be paid', () => {
+  const at = (iso: string) => new Date(iso);
+
+  it('refuses the first of the month', () => {
+    // A payslip for a month nobody has worked: zero overtime and zero
+    // deductions for everybody, frozen that way because drafts never
+    // recompute.
+    expect(monthHasEnded(10, 2026, at('2026-10-01T09:00:00Z'))).toBe(false);
+  });
+
+  it('refuses mid-month', () => {
+    expect(monthHasEnded(10, 2026, at('2026-10-15T12:00:00Z'))).toBe(false);
+  });
+
+  it('still refuses during the last day', () => {
+    // Somebody can work the 31st, and someone else can take leave on it.
+    expect(monthHasEnded(10, 2026, at('2026-10-31T09:00:00Z'))).toBe(false);
+    expect(monthHasEnded(10, 2026, at('2026-10-31T23:59:59.000Z'))).toBe(false);
+  });
+
+  it('allows it once the month is over', () => {
+    expect(monthHasEnded(10, 2026, at('2026-11-01T00:00:00Z'))).toBe(true);
+  });
+
+  it('allows a month long past', () => {
+    expect(monthHasEnded(9, 2026, at('2026-11-01T00:00:00Z'))).toBe(true);
+  });
+
+  it('handles December rolling into the new year', () => {
+    expect(monthHasEnded(12, 2026, at('2026-12-31T23:00:00Z'))).toBe(false);
+    expect(monthHasEnded(12, 2026, at('2027-01-01T00:30:00Z'))).toBe(true);
+  });
+
+  it('handles February in a leap year', () => {
+    // 2028 is a leap year: the 29th exists and must be worked first.
+    expect(monthHasEnded(2, 2028, at('2028-02-29T10:00:00Z'))).toBe(false);
+    expect(monthHasEnded(2, 2028, at('2028-03-01T00:00:00Z'))).toBe(true);
+  });
+
+  it('puts the boundary at the end of the last day, not the start', () => {
+    expect(endOfPayrollMonth(10, 2026).toISOString()).toBe('2026-10-31T23:59:59.999Z');
+    expect(endOfPayrollMonth(2, 2028).toISOString()).toBe('2028-02-29T23:59:59.999Z');
+  });
+
+  it('names the month for the message a person reads', () => {
+    expect(payrollMonthName(10, 2026)).toBe('October 2026');
+    expect(payrollMonthName(1, 2027)).toBe('January 2027');
+  });
+});
+
+describe('when payroll opens', () => {
+  it('is the day after the month ends, not its last day', () => {
+    // Somebody can work the 31st and somebody else can take leave on it,
+    // so the month is not complete until it is over.
+    expect(payrollOpensOn(10, 2026).toISOString().slice(0, 10)).toBe('2026-11-01');
+    expect(payrollOpensOn(11, 2026).toISOString().slice(0, 10)).toBe('2026-12-01');
+  });
+
+  it('rolls into the next year for December', () => {
+    expect(payrollOpensOn(12, 2026).toISOString().slice(0, 10)).toBe('2027-01-01');
+  });
+
+  it('agrees with the rule that gates it', () => {
+    // The date in the message must be a date the guard actually accepts.
+    for (const [m, y] of [[10, 2026], [12, 2026], [2, 2028]] as const) {
+      expect(monthHasEnded(m, y, payrollOpensOn(m, y))).toBe(true);
+    }
   });
 });

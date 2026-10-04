@@ -1,11 +1,11 @@
 import { cn } from '@/lib/cn';
 
 /**
- * Cadre mark.
+ * AI-HRMS mark.
  *
- * Four rounded units locked into a square — a cadre is a core group of people
- * held in formation. The top-left unit is filled and offset forward: the
- * individual the system is currently looking at, still part of the group.
+ * Four rounded units locked into a square — a workforce held in formation.
+ * The top-left unit is filled and offset forward: the individual the system
+ * is currently looking at, still part of the group.
  *
  * Drawn on a 32x32 grid, 3px stroke, round joins, so it sits with Lucide icons
  * at stroke 1.75 when scaled down.
@@ -48,7 +48,7 @@ export function Logo({
       {showWordmark && (
         <div className="flex flex-col leading-none">
           <span className="font-display text-[19px] font-extrabold tracking-[-0.03em] text-content-primary">
-            Cadre
+            AI-HRMS
           </span>
           <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-content-tertiary">
             People Operations

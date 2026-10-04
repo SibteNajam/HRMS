@@ -21,7 +21,7 @@ function at(date: Date, hh: number, mm: number) {
 }
 
 async function main() {
-  console.log('Seeding Cadre…');
+  console.log('Seeding AI-HRMS…');
 
   // ── Departments ──────────────────────────────────────────────────────
   const deptNames = ['Engineering', 'Human Resources', 'Sales', 'Finance', 'Operations'];

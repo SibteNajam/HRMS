@@ -122,7 +122,7 @@ export default function AllRequestsPage() {
                       <td className="px-4 py-3">
                         {r.autoApproved ? (
                           <>
-                            <span className="inline-flex items-center gap-1 text-body-sm font-medium text-brand">
+                            <span className="inline-flex items-center gap-1 text-body-sm font-medium text-[var(--color-primary)]">
                               <Bot size={13} strokeWidth={2} aria-hidden />
                               Automatic
                             </span>

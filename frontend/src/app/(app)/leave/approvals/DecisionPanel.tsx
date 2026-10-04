@@ -48,7 +48,7 @@ const AGREEMENT: Record<Agreement, { label: string; cls: string }> = {
   },
   softer: {
     label: 'AI judges this fine',
-    cls: 'bg-[color-mix(in_srgb,var(--brand)_12%,transparent)] text-brand',
+    cls: 'bg-[color-mix(in_srgb,var(--color-primary)_12%,transparent)] text-[var(--color-primary)]',
   },
 };
 

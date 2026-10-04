@@ -24,6 +24,9 @@ next-env.d.ts
 # creates enormous, meaningless diffs on every change.
 backend/src/generated/
 
+# Uploaded CVs. Candidate documents, never in the repository.
+backend/uploads/
+
 # ── Uploads — contain personal data ───────────────────────
 backend/uploads/
 

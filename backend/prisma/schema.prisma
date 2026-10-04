@@ -1,4 +1,4 @@
-// Cadre — HR management schema
+// AI-HRMS — HR management schema
 // Design rules (see docs/03-database-schema.md):
 //   1. Nothing is stored that can be derived.
 //   2. Except snapshots — a payslip freezes its numbers permanently.
@@ -42,6 +42,55 @@ enum LeaveRequestStatus {
   PENDING
   APPROVED
   REJECTED
+  CANCELLED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+}
+
+enum WorkMode {
+  ON_SITE
+  HYBRID
+  REMOTE
+}
+
+enum JobPostingStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+enum ApplicationSource {
+  EMAIL
+  FORM
+  MANUAL
+}
+
+enum ApplicationStatus {
+  /// CV received, not yet read by the scorer.
+  RECEIVED
+  /// Scored and below the posting's threshold. No email is sent: a machine
+  /// does not tell somebody they were not good enough.
+  SCREENED
+  /// Scored at or above the threshold. Invited to pick an interview slot.
+  SHORTLISTED
+  /// They picked a slot.
+  INTERVIEW
+  /// A person decided. Never set automatically.
+  REJECTED
+  HIRED
+  /// The CV could not be read, or no posting could be matched to it.
+  /// Parked for HR rather than dropped.
+  NEEDS_REVIEW
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
   CANCELLED
 }
 
@@ -106,6 +155,7 @@ model Department {
   name      String        @unique @db.VarChar(100)
   employees Employee[]
   teams     ProjectTeam[]
+  postings  JobPosting[]
 
   @@map("departments")
 }
@@ -540,4 +590,161 @@ model ProjectTeamMember {
   @@unique([projectTeamId, employeeId])
   @@index([employeeId])
   @@map("project_team_members")
+}
+
+
+// ─── Recruitment ────────────────────────────────────────────────────────
+
+/// A role being advertised.
+///
+/// `description` is what the scorer reads a CV against, so it carries the
+/// actual requirements rather than marketing copy. `shortlistThreshold` is
+/// per posting because the bar for a senior engineer is not the bar for an
+/// intern.
+model JobPosting {
+  id                 Int              @id @default(autoincrement())
+  /// Quoted in the job advert so an emailed CV can be matched to the role.
+  code               String           @unique @db.VarChar(20)
+  title              String           @db.VarChar(120)
+  departmentId       Int?             @map("department_id")
+  description        String           @db.Text
+  /// Skills the scorer looks for, as a list of strings.
+  requiredSkills     Json             @map("required_skills")
+  minYearsExperience Int              @default(0) @map("min_years_experience")
+  /// Score at or above which a candidate is invited. 0-100.
+  shortlistThreshold Int              @default(70) @map("shortlist_threshold")
+
+  // ── What an advert needs and a score does not ────────────────────────
+  // These never reach the scorer: where a job is and whether it is a
+  // contract say nothing about whether this CV fits it. They exist so the
+  // advert can be generated from the posting rather than written twice and
+  // drifting apart.
+  location       String?         @db.VarChar(160)
+  employmentType EmploymentType  @default(FULL_TIME) @map("employment_type")
+  workMode       WorkMode        @default(ON_SITE) @map("work_mode")
+  /// Free text: "PKR 250,000 – 350,000 / month", or left out entirely.
+  salaryRange    String?         @map("salary_range") @db.VarChar(120)
+  /// One or two sentences of advert copy. The description stays a
+  /// requirements spec because that is what a CV is scored against;
+  /// this is the part written to attract somebody.
+  advertIntro    String?         @map("advert_intro") @db.VarChar(600)
+
+  // ── The interview window ────────────────────────────────────────────
+  // Set once, when the role is created. Every slot a candidate can book
+  // is generated from these five numbers, so HR never picks times one by
+  // one and every candidate sees the same grid.
+  //
+  // Null means interviews have not been scheduled yet: the role can still
+  // take applications, and shortlisted candidates are told times are
+  // coming rather than shown an empty page.
+  interviewFrom      DateTime? @map("interview_from") @db.Date
+  interviewTo        DateTime? @map("interview_to") @db.Date
+  /// Hours of the day, 0-23. 10 to 17 means the last slot starts at 16.
+  interviewStartHour Int       @default(10) @map("interview_start_hour") @db.TinyInt
+  interviewEndHour   Int       @default(17) @map("interview_end_hour") @db.TinyInt
+  /// Lunch. Null for no break at all.
+  breakStartHour     Int?      @map("break_start_hour") @db.TinyInt
+  breakEndHour       Int?      @map("break_end_hour") @db.TinyInt
+  slotMinutes        Int       @default(60) @map("slot_minutes")
+  status             JobPostingStatus @default(DRAFT)
+  openedAt           DateTime?        @map("opened_at")
+  closedAt           DateTime?        @map("closed_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  department   Department?     @relation(fields: [departmentId], references: [id])
+  applications Application[]
+  slots        InterviewSlot[]
+
+  @@index([status])
+  @@map("job_postings")
+}
+
+/// One person's application to one posting.
+///
+/// The CV text is kept alongside the file: the scorer reads text, and a
+/// person reading the application later wants the original.
+model Application {
+  id             Int               @id @default(autoincrement())
+  jobPostingId   Int?              @map("job_posting_id")
+  candidateName  String            @map("candidate_name") @db.VarChar(120)
+  candidateEmail String            @map("candidate_email") @db.VarChar(160)
+  candidatePhone String?           @map("candidate_phone") @db.VarChar(40)
+  source         ApplicationSource @default(EMAIL)
+  /// Where the uploaded file sits on disk, relative to the uploads root.
+  cvPath         String?           @map("cv_path") @db.VarChar(255)
+  cvFileName     String?           @map("cv_file_name") @db.VarChar(255)
+  /// Extracted text. What the scorer actually reads.
+  cvText         String?           @map("cv_text") @db.Text
+  status         ApplicationStatus @default(RECEIVED)
+
+  // ── What the candidate told us ──────────────────────────────────────
+  // Only set when they applied through the careers form. An emailed CV
+  // carries none of this, which is itself a reason to prefer the form.
+  candidateAddress String? @map("candidate_address") @db.VarChar(255)
+  /// What they say their experience is, in half-year steps. Kept apart
+  /// from `yearsExperience`, which is what the CV actually evidences — a
+  /// gap between the two is worth a reviewer's attention, and collapsing
+  /// them into one field would hide it.
+  statedYearsExperience Decimal? @map("stated_years_experience") @db.Decimal(4, 1)
+  currentSalary         Decimal? @map("current_salary") @db.Decimal(12, 2)
+  expectedSalary        Decimal? @map("expected_salary") @db.Decimal(12, 2)
+
+  /// 0-100 against the posting. Null until scored.
+  score           Int?
+  scoreReason     String?   @map("score_reason") @db.VarChar(1000)
+  matchedSkills   Json?     @map("matched_skills")
+  missingSkills   Json?     @map("missing_skills")
+  yearsExperience Decimal?  @map("years_experience") @db.Decimal(4, 1)
+  scoredAt        DateTime? @map("scored_at")
+  /// Set when a person overrides the automatic outcome, with their reason.
+  decisionNote    String?   @map("decision_note") @db.VarChar(500)
+
+  /// Unguessable, and the only thing standing between a stranger and
+  /// somebody else's interview booking page.
+  bookingToken String   @unique @map("booking_token") @db.VarChar(64)
+  receivedAt   DateTime @default(now()) @map("received_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  posting   JobPosting? @relation(fields: [jobPostingId], references: [id])
+  interview Interview?
+
+  @@index([jobPostingId, status])
+  @@index([candidateEmail])
+  @@map("applications")
+}
+
+/// A time HR has offered for interviews.
+///
+/// A slot holds at most one interview — enforced by the unique key on
+/// `Interview.slotId`, so two candidates clicking at the same moment cannot
+/// both take it. The database decides, not the order the requests arrive.
+model InterviewSlot {
+  id           Int      @id @default(autoincrement())
+  jobPostingId Int?     @map("job_posting_id")
+  startsAt     DateTime @map("starts_at")
+  endsAt       DateTime @map("ends_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  posting   JobPosting? @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
+  interview Interview?
+
+  @@unique([jobPostingId, startsAt])
+  @@index([startsAt])
+  @@map("interview_slots")
+}
+
+model Interview {
+  id            Int             @id @default(autoincrement())
+  applicationId Int             @unique @map("application_id")
+  slotId        Int             @unique @map("slot_id")
+  status        InterviewStatus @default(SCHEDULED)
+  meetingLink   String?         @map("meeting_link") @db.VarChar(400)
+  notes         String?         @db.Text
+  bookedAt      DateTime        @default(now()) @map("booked_at")
+
+  application Application   @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  slot        InterviewSlot @relation(fields: [slotId], references: [id])
+
+  @@map("interviews")
 }

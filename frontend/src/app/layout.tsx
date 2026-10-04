@@ -20,7 +20,7 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: { default: 'Cadre', template: '%s · Cadre' },
+  title: { default: 'AI-HRMS', template: '%s · AI-HRMS' },
   description: 'AI-assisted human resource management.',
 };
 

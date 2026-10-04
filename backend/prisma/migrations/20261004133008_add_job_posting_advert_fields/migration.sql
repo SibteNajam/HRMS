@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE `job_postings` ADD COLUMN `advert_intro` VARCHAR(600) NULL,
+    ADD COLUMN `employment_type` ENUM('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP') NOT NULL DEFAULT 'FULL_TIME',
+    ADD COLUMN `location` VARCHAR(160) NULL,
+    ADD COLUMN `salary_range` VARCHAR(120) NULL,
+    ADD COLUMN `work_mode` ENUM('ON_SITE', 'HYBRID', 'REMOTE') NOT NULL DEFAULT 'ON_SITE';

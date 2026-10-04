@@ -23,7 +23,7 @@ export default function LoginPage() {
         <div className="relative flex items-center gap-3">
           <LogoMark className="h-9 w-9 text-white" />
           <span className="font-display text-[22px] font-extrabold tracking-[-0.03em] text-white">
-            Cadre
+            AI-HRMS
           </span>
         </div>
 
@@ -38,7 +38,7 @@ export default function LoginPage() {
         </div>
 
         <p className="relative text-body-sm text-[#E7F0FF]">
-          © {new Date().getFullYear()} Cadre
+          © {new Date().getFullYear()} AI-HRMS
         </p>
       </aside>
 

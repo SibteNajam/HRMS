@@ -6,7 +6,7 @@
  * settings table described in docs/17-ui-customization.md.
  */
 export const COMPANY = {
-  name: process.env.NEXT_PUBLIC_COMPANY_NAME ?? 'Cadre',
+  name: process.env.NEXT_PUBLIC_COMPANY_NAME ?? 'AI-HRMS',
   tagline: process.env.NEXT_PUBLIC_COMPANY_TAGLINE ?? 'People Operations',
   addressLine1: process.env.NEXT_PUBLIC_COMPANY_ADDRESS_1 ?? 'Plot 14, Shahrah-e-Faisal',
   addressLine2: process.env.NEXT_PUBLIC_COMPANY_ADDRESS_2 ?? 'Karachi 75400, Pakistan',

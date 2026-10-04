@@ -47,7 +47,16 @@ export const envSchema = z.object({
 
   SMTP_HOST: z.string().default('smtp.gmail.com'),
   SMTP_PORT: z.coerce.number().default(587),
-  SMTP_SECURE: z.coerce.boolean().default(false),
+  /**
+   * NOT z.coerce.boolean(): that is `Boolean(value)`, and the string
+   * "false" is truthy — so SMTP_SECURE=false silently became true and
+   * nodemailer opened an implicit TLS connection on the STARTTLS port,
+   * failing with "wrong version number".
+   */
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().default('Cadre <no-reply@cadre.local>'),
@@ -75,6 +84,32 @@ export const envSchema = z.object({
    * a policy decision for whoever runs the system rather than a default
    * somebody inherits by upgrading.
    */
+  /**
+   * Where uploaded CVs are written, relative to the backend root.
+   */
+  UPLOAD_DIR: z.string().default('uploads'),
+
+  /** Printed at the top of a generated job advert. */
+  COMPANY_NAME: z.string().default('AI-HRMS'),
+
+  /**
+   * The zone HR works in. Interview hours are written in it — "10:00"
+   * means ten in the morning here, not ten UTC.
+   */
+  COMPANY_TIMEZONE: z.string().default('Asia/Karachi'),
+
+  /**
+   * The mailbox CVs are sent to. Unset means email intake is off and the
+   * rest of recruitment still works — HR uploads CVs by hand.
+   *
+   * For Gmail this needs an App Password, the same as SMTP, and IMAP has
+   * to be enabled in the account's settings.
+   */
+  IMAP_HOST: z.string().default('imap.gmail.com'),
+  IMAP_PORT: z.coerce.number().default(993),
+  IMAP_USER: z.string().default(''),
+  IMAP_PASS: z.string().default(''),
+
   LEAVE_AUTO_APPROVAL: z
     .string()
     .default('false')

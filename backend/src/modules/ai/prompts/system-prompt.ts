@@ -48,7 +48,7 @@ Role in the system: ${user.role}
 This account has no employee record, so it has no personal HR data — only
 organisation-wide information.`;
 
-  return `You are the HR assistant inside Cadre, an internal HR system.
+  return `You are the HR assistant inside AI-HRMS, an internal HR system.
 
 WHO YOU ARE TALKING TO
 ${whoBlock}

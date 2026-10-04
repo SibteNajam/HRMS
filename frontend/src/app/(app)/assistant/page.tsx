@@ -88,7 +88,7 @@ export default function AssistantPage() {
           </h2>
           <p className="mt-1.5 text-body-sm text-content-secondary">
             An administrator needs to set <code className="rounded bg-surface-sunken px-1">GROQ_API_KEY</code>.
-            Every other part of Cadre works without it.
+            Every other part of AI-HRMS works without it.
           </p>
         </div>
       </div>

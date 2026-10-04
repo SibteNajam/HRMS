@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  CircleAlert, CircleCheck, Info, Lock, PenLine, RefreshCw, ShieldCheck,
-  Trash2, TriangleAlert,
+  CircleAlert, CircleCheck, Hourglass, Info, Lock, PenLine, RefreshCw,
+  ShieldCheck, Trash2, TriangleAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -20,6 +20,7 @@ import { getErrorMessage } from '@/lib/getErrorMessage';
 import { useAppSelector } from '@/store/hooks';
 import {
   monthLabel, useDeleteRunMutation, useFinaliseRunMutation, useGetRunQuery,
+  useRecalculateRunMutation,
   type RunPayslip,
 } from '@/store/api/endpoints/payrollApi';
 import { AdjustDialog } from './AdjustDialog';
@@ -34,6 +35,23 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const { data: run, isLoading } = useGetRunQuery(runId);
   const [finalise, { isLoading: finalising }] = useFinaliseRunMutation();
   const [remove, { isLoading: removing }] = useDeleteRunMutation();
+  const [recalc, { isLoading: recalculating }] = useRecalculateRunMutation();
+
+  /**
+   * Brings a draft back in line with the records.
+   *
+   * Bonuses and other deductions already entered are kept — losing them to
+   * a refresh would make the button unusable on any run somebody had
+   * already worked on.
+   */
+  async function recalculate() {
+    try {
+      await recalc(runId).unwrap();
+      toast.success('Figures brought up to date');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  }
 
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -97,18 +115,38 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                   Delete draft
                 </Button>
               )}
+              {/* Refreshing is always available on a draft: a forecast is
+                  only worth reading if it is current. */}
+              <Button
+                variant="secondary"
+                icon={RefreshCw}
+                loading={recalculating}
+                onClick={recalculate}
+              >
+                Recalculate
+              </Button>
               <Button
                 variant="primary"
                 icon={isAdmin ? ShieldCheck : Lock}
-                disabled={!isAdmin || unsetSalary.length > 0}
+                // Each of these would fail on the server anyway. Saying so
+                // on the button is the difference between a rule and an
+                // error message.
+                disabled={
+                  !isAdmin || unsetSalary.length > 0 ||
+                  !run.monthComplete || !!run.staleness
+                }
                 loading={finalising}
                 onClick={() => setConfirming(true)}
                 title={
                   !isAdmin
                     ? 'Only an administrator can finalise payroll'
-                    : unsetSalary.length > 0
-                      ? 'Set a salary for everyone in this run first'
-                      : undefined
+                    : !run.monthComplete
+                      ? `${monthLabel(run.month, run.year)} is still running — these figures are a forecast until ${run.opensOn}`
+                      : run.staleness
+                        ? 'Recalculate first — records have changed since these figures were produced'
+                        : unsetSalary.length > 0
+                          ? 'Set a salary for everyone in this run first'
+                          : undefined
                 }
               >
                 {isAdmin ? 'Finalise payroll' : 'Admin approval required'}
@@ -165,21 +203,44 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
         </div>
       )}
 
-      {/* Above the anomalies: a stale draft makes every figure below it
-          suspect, so it is the first thing to read. */}
+      {/* A month still running cannot have final figures. Saying so is the
+          difference between a forecast and a payslip somebody acts on. */}
+      {run.status === 'DRAFT' && !run.monthComplete && (
+        <div className="mb-5 rounded-xl border border-line-subtle bg-surface-sunken p-4">
+          <p className="flex items-center gap-2 font-semibold text-content-primary">
+            <Hourglass size={17} strokeWidth={2} className="text-info" />
+            Forecast — this month is still running
+          </p>
+          <p className="mt-1.5 max-w-[80ch] text-body-sm text-content-secondary">
+            Overtime and unpaid leave are still accumulating, so these figures
+            will change. Recalculate any time to see where payroll stands.
+            Payroll runs in arrears, so this can be finalised from{' '}
+            <span className="font-medium text-content-primary">{run.opensOn}</span>.
+          </p>
+        </div>
+      )}
+
+      {/* A stale draft makes every figure below it suspect, so it goes
+          above the anomalies. */}
       {run.staleness && (
-        <div className="mb-5 rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] p-4">
-          <p className="flex items-center gap-2 font-semibold text-danger">
+        <div className="mb-5 rounded-xl border border-[color-mix(in_srgb,var(--warning)_32%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] p-4">
+          <p className="flex items-center gap-2 font-semibold text-warning">
             <RefreshCw size={17} strokeWidth={2} />
             These figures are out of date
           </p>
           <p className="mt-1.5 max-w-[80ch] text-body-sm text-content-secondary">
             {run.staleness.message}
           </p>
-          <p className="mt-2 text-caption text-content-tertiary">
-            Finalising is blocked until then — it cannot be undone, and these
-            payslips would be missing the figures above.
-          </p>
+          <Button
+            className="mt-3"
+            size="sm"
+            variant="primary"
+            icon={RefreshCw}
+            loading={recalculating}
+            onClick={recalculate}
+          >
+            Recalculate
+          </Button>
         </div>
       )}
 

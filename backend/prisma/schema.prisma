@@ -312,6 +312,12 @@ model PayrollRun {
   status      PayrollRunStatus @default(DRAFT)
   processedBy Int?             @map("processed_by")
   processedAt DateTime?        @map("processed_at")
+  /// When the draft was last recalculated from the records.
+  ///
+  /// Staleness is measured from here rather than from `createdAt`, or a
+  /// draft would go on reporting itself out of date immediately after
+  /// being brought up to date.
+  recalculatedAt DateTime?     @map("recalculated_at")
   createdAt   DateTime         @default(now()) @map("created_at")
 
   processor User?     @relation("PayrollProcessor", fields: [processedBy], references: [id])

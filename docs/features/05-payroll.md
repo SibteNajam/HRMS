@@ -51,51 +51,71 @@ in April.
 
 ## When payroll runs
 
-**In arrears: a month is paid once it is over.** October payroll is created
-on 1 November or later, never during October.
+**A draft can be created at any time. It can only be finalised once the
+month is over.**
 
-Every variable figure accumulates through the month — overtime from
-check-in and check-out records, unpaid leave from requests people are still
-submitting, attendance percentage from days that have not happened. A run
-created on the 1st produces a payslip for a month nobody has worked: zero
-overtime and zero deductions for everybody. Because **a draft never
-recomputes**, it stays that way.
+Those are two different questions, and the guard belongs on the second one.
+Creating a draft mid-month is useful: it shows HR where payroll is heading,
+and nothing is paid. Finalising is the irreversible step — payslips frozen,
+dues recovered — and that cannot happen while overtime and unpaid leave are
+still accumulating.
 
-`monthHasEnded()` enforces it. Creating a run before the month is over is
-refused with the date it opens:
+A draft for a running month is labelled a **forecast** on screen, with the
+date it can be finalised:
 
-> October 2026 is not over yet. Payroll runs in arrears, so this one can be
-> created from 2026-11-01 onwards — by then overtime, leave and attendance
-> for the month are complete.
+> October 2026 is not over yet, so these figures are still a forecast.
+> Payroll runs in arrears: this can be finalised from 2026-11-01 onwards.
 
-The boundary is the end of the last day, not its start: somebody can work
+The boundary is the end of the last day, not its start — somebody can work
 the 31st, and somebody else can take leave on it.
 
-### A draft that no longer matches the records
+### Recalculate
 
-Creating at the right time is not enough on its own. Leave can be approved
-after the draft is calculated — and with automatic approval it happens
-without anybody touching the system, so nobody is watching.
+A payslip is a snapshot. Leave approved after a draft is calculated is
+missing from it, and with automatic approval that happens without anybody
+touching the system.
 
-`draftStaleness()` compares the records against `run.createdAt` and reports
-unpaid leave approved, and attendance added, since. It is shown two ways:
+**Recalculate** re-runs the whole calculation from the records as they
+stand. It is available on any draft, and it is what makes a forecast worth
+reading.
+
+| Recomputed | Preserved |
+|---|---|
+| Base, allowances, overtime | **Bonus** and its reason |
+| Unpaid leave and its note | **Other deductions** and its reason |
+| Dues installment and cap | |
+
+Losing HR's own figures to a refresh would make the button unusable on any
+run somebody had already worked on, so they are put back and the net is
+re-derived around them. Employees hired into the month since the draft was
+made get a payslip added.
+
+`computeMonth()` is shared by creation and recalculation. A refresh that
+computed anything differently would be a second payroll engine, and only one
+of them would be the tested one.
+
+### Knowing when it is out of date
+
+`draftStaleness()` compares the records against `recalculatedAt ?? createdAt`
+and reports unpaid leave approved, and attendance added, since. Measuring
+from the last recalculation rather than from creation is what stops a draft
+reporting itself out of date for ever, immediately after being brought up to
+date.
 
 | Where | What happens |
 |---|---|
-| Run detail screen | A red banner above everything: *"These figures are out of date"* |
-| Finalising | **Refused.** Finalising is irreversible and recovers dues |
-
-The remedy is to delete the draft and create it again — nothing is lost,
-because a draft is not an issued payslip.
+| Run detail screen | A banner with a **Recalculate** button |
+| Finalise button | Disabled, with the reason in its tooltip |
+| Finalise endpoint | **Refused** — it is irreversible and recovers dues |
 
 ### What this system does not have: arrears
 
 Real payroll handles a late item by putting it on the **next** month's
 payslip as an arrears line, never by reopening a closed month. This system
-has no arrears line, which is exactly why the month must be complete before
-the run is created: there is nowhere for a late figure to go afterwards.
+has no arrears line, which is why a month must be complete before it can be
+finalised: there is nowhere for a late figure to go afterwards.
 
-That is a deliberate scope decision, not an oversight. Paying in arrears
+A deliberate scope decision rather than an oversight. Paying in arrears
 removes the need for one.
 
 ## What a "payroll run" is

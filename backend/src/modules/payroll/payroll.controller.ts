@@ -95,6 +95,21 @@ export class PayrollController {
   }
 
   /**
+   * Recalculates a draft from the records as they stand.
+   *
+   * HR may do this — it changes nothing that has been paid, and a draft for
+   * a month still running needs it to stay useful. Bonuses and other
+   * deductions already entered are preserved.
+   */
+  @Post('runs/:id/recalculate')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...HR_AND_ABOVE)
+  @Audit('PAYROLL_RECALCULATED', 'payroll_run')
+  recalculate(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
+    return this.payroll.recalculate(user, id);
+  }
+
+  /**
    * Issues the run. ADMIN only and irreversible — a second pair of eyes on
    * the step that actually pays people and takes money off them.
    */

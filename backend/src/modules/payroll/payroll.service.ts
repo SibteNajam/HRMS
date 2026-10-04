@@ -47,21 +47,16 @@ export class PayrollService {
    * attendance, leave and dues. Nothing is issued and nothing is deducted —
    * this is the preview HR checks before an administrator signs it off.
    */
+  /**
+   * Creates a DRAFT for a month, finished or not.
+   *
+   * A draft for a month still running is a forecast: useful to see where
+   * payroll is heading, and safe because nothing is issued. What it must
+   * not become is a payment — `finaliseRun` refuses until the month is
+   * over, which is the irreversible step and therefore the one that needs
+   * the guard.
+   */
   async createRun(user: JwtUser, month: number, year: number) {
-    // The month has to be over before it can be paid. Overtime, unpaid
-    // leave and attendance all accumulate through it, and a draft never
-    // recomputes — so a run started early is wrong by exactly the work and
-    // absence that follows, permanently.
-    if (!monthHasEnded(month, year, new Date())) {
-      const name = payrollMonthName(month, year);
-      const opens = payrollOpensOn(month, year);
-      throw new BadRequestException(
-        `${name} is not over yet. Payroll runs in arrears, so this one can ` +
-          `be created from ${opens.toISOString().slice(0, 10)} onwards — ` +
-          `by then overtime, leave and attendance for the month are complete.`,
-      );
-    }
-
     const existing = await this.prisma.payrollRun.findUnique({
       where: { month_year: { month, year } },
     });
@@ -73,6 +68,121 @@ export class PayrollService {
       );
     }
 
+    const computed = await this.computeMonth(month, year);
+
+    const run = await this.prisma.payrollRun.create({
+      data: { month, year, status: 'DRAFT' },
+    });
+
+    for (const [employeeId, row] of computed) {
+      await this.prisma.payslip.create({
+        data: { payrollRunId: run.id, employeeId, ...row },
+      });
+    }
+
+    this.logger.log(
+      `Draft payroll ${year}-${month} created by ${user.email}: ${computed.size} payslips`,
+    );
+    return this.getRun(run.id);
+  }
+
+  /**
+   * Recalculates every payslip in a draft from the records as they stand.
+   *
+   * This is what a draft for a running month needs to be useful, and what
+   * a stale draft needs to become correct: leave approved since, attendance
+   * recorded since, a salary changed since, all picked up.
+   *
+   * Bonus and other deductions are NOT recomputed. Those are HR's figures
+   * with HR's reasons, and losing them to a refresh would make the button
+   * unusable on any run somebody had already worked on.
+   */
+  async recalculate(user: JwtUser, runId: number) {
+    const run = await this.prisma.payrollRun.findUnique({
+      where: { id: runId },
+      include: { payslips: true },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found');
+    if (run.status === 'FINALISED') {
+      throw new BadRequestException(
+        'A finalised run cannot be recalculated. Payslips are financial records.',
+      );
+    }
+
+    const computed = await this.computeMonth(run.month, run.year);
+    const existing = new Map(run.payslips.map((p) => [p.employeeId, p]));
+
+    let updated = 0;
+    let added = 0;
+
+    for (const [employeeId, row] of computed) {
+      const slip = existing.get(employeeId);
+
+      if (!slip) {
+        // Somebody hired into the month since the draft was made.
+        await this.prisma.payslip.create({
+          data: { payrollRunId: run.id, employeeId, ...row },
+        });
+        added += 1;
+        continue;
+      }
+
+      // Re-run the whole calculation with HR's own figures put back, so the
+      // dues cap and the net are consistent with the new deductions rather
+      // than patched on top of the old ones.
+      const bonus = Number(slip.bonus);
+      const otherDeductions = Number(slip.otherDeductions);
+      const gross = round2(
+        row.baseSalary + row.allowances + row.overtimeAmount + bonus,
+      );
+      const beforeDues = round2(gross - row.unpaidLeaveDeduction - otherDeductions);
+      const duesDeduction = round2(
+        Math.min(row.duesDeduction, Math.max(0, beforeDues)),
+      );
+
+      await this.prisma.payslip.update({
+        where: { id: slip.id },
+        data: {
+          ...row,
+          bonus,
+          otherDeductions,
+          duesDeduction,
+          netSalary: round2(Math.max(0, beforeDues - duesDeduction)),
+        },
+      });
+      updated += 1;
+    }
+
+    await this.prisma.payrollRun.update({
+      where: { id: run.id },
+      data: { recalculatedAt: new Date() },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: user.sub,
+        action: 'PAYROLL_RECALCULATED',
+        entity: 'payroll_run',
+        entityId: run.id,
+        metadata: { updated, added },
+      },
+    }).catch(() => undefined);
+
+    this.logger.log(
+      `Payroll ${run.year}-${run.month} recalculated by ${user.email}: ` +
+        `${updated} updated, ${added} added`,
+    );
+    return this.getRun(run.id);
+  }
+
+  /**
+   * Every payslip for a month, calculated from the records as they stand.
+   *
+   * Shared by creation and recalculation so the two cannot drift: a refresh
+   * that computed anything differently from the original would be a second
+   * payroll engine, and only one of them would be the tested one.
+   */
+  private async computeMonth(month: number, year: number) {
     const from = new Date(Date.UTC(year, month - 1, 1));
     const to = new Date(Date.UTC(year, month, 0));
     const workingDaysInMonth = await this.attendance.workingDaysBetween(from, to);
@@ -94,11 +204,9 @@ export class PayrollService {
     }
 
     const unpaidLeave = await this.unpaidLeaveByEmployee(from, to);
-    const run = await this.prisma.payrollRun.create({
-      data: { month, year, status: 'DRAFT' },
-    });
-
     const policy = this.attendance.policy;
+    const rows = new Map<number, ReturnType<typeof this.toColumns> &
+      { leaveDeductionNote: string | null }>();
 
     for (const e of employees) {
       const totals = totalsFrom(e.attendance, policy);
@@ -126,27 +234,19 @@ export class PayrollService {
         otherDeductions: 0,
       });
 
-      // The explanation is produced with the figure and frozen beside it.
-      // Deriving it later would mean re-reading leave records that may have
-      // been corrected since, and quietly describing a different payslip.
       const unpaid = unpaidLeave.get(e.id);
 
-      await this.prisma.payslip.create({
-        data: {
-          payrollRunId: run.id,
-          employeeId: e.id,
-          ...this.toColumns(result),
-          leaveDeductionNote: unpaid
-            ? describeUnpaidLeave(unpaid.spells, result.workings.perDayRate)
-            : null,
-        },
+      rows.set(e.id, {
+        ...this.toColumns(result),
+        // Produced with the figure it explains, so the two always describe
+        // the same calculation.
+        leaveDeductionNote: unpaid
+          ? describeUnpaidLeave(unpaid.spells, result.workings.perDayRate)
+          : null,
       });
     }
 
-    this.logger.log(
-      `Draft payroll ${year}-${month} created by ${user.email}: ${employees.length} payslips`,
-    );
-    return this.getRun(run.id);
+    return rows;
   }
 
   async getRun(id: number) {
@@ -226,6 +326,10 @@ export class PayrollService {
       totals,
       flaggedCount: payslips.filter((p) => p.flags.length > 0).length,
       staleness: await this.draftStaleness(run),
+      // A draft for a month still running is a forecast, and the screen
+      // says so rather than presenting provisional figures as final.
+      monthComplete: monthHasEnded(run.month, run.year, new Date()),
+      opensOn: payrollOpensOn(run.month, run.year).toISOString().slice(0, 10),
     };
   }
 
@@ -241,8 +345,13 @@ export class PayrollService {
    * correct place for a late item is the next month, not this one.
    */
   private async draftStaleness(run: { id: number; month: number; year: number;
-    status: string; createdAt: Date }) {
+    status: string; createdAt: Date; recalculatedAt: Date | null }) {
     if (run.status !== 'DRAFT') return null;
+
+    // Measured from the last time the figures were produced, not from when
+    // the run was first made — otherwise a draft reports itself out of date
+    // for ever, immediately after being brought up to date.
+    const since = run.recalculatedAt ?? run.createdAt;
 
     const from = new Date(Date.UTC(run.year, run.month - 1, 1));
     const to = new Date(Date.UTC(run.year, run.month, 0));
@@ -254,13 +363,13 @@ export class PayrollService {
           leaveType: { isPaid: false },
           startDate: { lte: to },
           endDate: { gte: from },
-          // Approved after the draft was calculated, so its deduction is
+          // Approved after the figures were produced, so its deduction is
           // not in any payslip here.
-          reviewedAt: { gt: run.createdAt },
+          reviewedAt: { gt: since },
         },
       }),
       this.prisma.attendance.count({
-        where: { date: { gte: from, lte: to }, createdAt: { gt: run.createdAt } },
+        where: { date: { gte: from, lte: to }, createdAt: { gt: since } },
       }),
     ]);
 
@@ -283,8 +392,8 @@ export class PayrollService {
       attendanceAdded,
       message:
         `${parts.join(' and ')} since this draft was calculated. ` +
-        `Those figures are not in it. Delete the draft and create it again ` +
-        `to include them.`,
+        `Those figures are not in it yet — recalculate to pick them up. ` +
+        `Bonuses and other deductions you have entered are kept.`,
     };
   }
 
@@ -413,6 +522,21 @@ export class PayrollService {
     }
     if (run.payslips.length === 0) {
       throw new BadRequestException('This run has no payslips');
+    }
+
+    // The month has to be over before it can be paid. Overtime and unpaid
+    // leave accumulate through it, so a month still running cannot have a
+    // final figure — a draft of one is a forecast, and finalising would
+    // turn a forecast into a payment nobody can take back.
+    if (!monthHasEnded(run.month, run.year, new Date())) {
+      const name = payrollMonthName(run.month, run.year);
+      const opens = payrollOpensOn(run.month, run.year);
+      throw new BadRequestException(
+        `${name} is not over yet, so these figures are still a forecast. ` +
+          `Payroll runs in arrears: this can be finalised from ` +
+          `${opens.toISOString().slice(0, 10)} onwards, once overtime, leave ` +
+          `and attendance for the month are complete.`,
+      );
     }
 
     // The last point at which this is still fixable. Finalising freezes

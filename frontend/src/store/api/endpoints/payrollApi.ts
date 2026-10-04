@@ -82,6 +82,14 @@ export interface RunDetail extends PayrollRun {
     attendanceAdded: number;
     message: string;
   } | null;
+  /**
+   * False while the month is still running. The figures are a forecast
+   * then — overtime and unpaid leave are still accumulating — and the run
+   * cannot be finalised.
+   */
+  monthComplete: boolean;
+  /** YYYY-MM-DD: the first day this month can be finalised. */
+  opensOn: string;
 }
 
 export interface MyPayslip extends PayslipFigures {
@@ -171,6 +179,12 @@ export const payrollApi = baseApi.injectEndpoints({
       invalidatesTags: (r, e, { runId }) => [{ type: 'PayrollRun', id: runId }],
     }),
 
+    /** Refreshes derived figures. HR's bonuses and deductions are kept. */
+    recalculateRun: build.mutation<RunDetail, number>({
+      query: (id) => ({ url: `/payroll/runs/${id}/recalculate`, method: 'POST' }),
+      invalidatesTags: (r, e, id) => [{ type: 'PayrollRun', id }],
+    }),
+
     finaliseRun: build.mutation<RunDetail, number>({
       query: (id) => ({ url: `/payroll/runs/${id}/finalise`, method: 'POST' }),
       // Finalising issues payslips and recovers dues, so both are stale.
@@ -210,7 +224,8 @@ export const {
   useGetMyPayslipsQuery, useGetPayslipQuery, useComparePayslipQuery,
   useExplainPayslipMutation,
   useGetRunsQuery, useGetRunQuery, useCreateRunMutation,
-  useAdjustPayslipMutation, useFinaliseRunMutation, useDeleteRunMutation,
+  useAdjustPayslipMutation, useRecalculateRunMutation,
+  useFinaliseRunMutation, useDeleteRunMutation,
   useGetSalaryStructureQuery, useUpdateSalaryMutation,
 } = payrollApi;
 

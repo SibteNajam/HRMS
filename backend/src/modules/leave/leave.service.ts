@@ -293,7 +293,7 @@ export class LeaveService {
     });
 
     const { flags: _flags, ...facts } = await this.decisionContext(requestId);
-    const hits = evaluateRules(facts, request.reason);
+    const hits = evaluateRules(facts, request.reason, Number(request.days));
     if (!autoApprovable(hits)) return null;
 
     const note = autoApprovalNote(facts, request.leaveType.name);
@@ -1023,7 +1023,12 @@ export class LeaveService {
       },
     };
 
-    return { ...partial, flags: buildFlags(partial, request.reason) };
+    return {
+      ...partial,
+      // Length is its own question, and it is on the request rather than in
+      // the context the other rules read.
+      flags: buildFlags(partial, request.reason, Number(request.days)),
+    };
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────

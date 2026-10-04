@@ -101,6 +101,7 @@ All in `leave-decision-context.ts`, all constants:
 | `ROLE_UNCOVERED` | everyone else with the **same job title** is off across these dates |
 | `PROJECT_UNDERSTAFFED` | approving would take a project team below its **minimum staffing** |
 | `PROJECT_ROLE_UNCOVERED` | everyone else doing this job **on a project team** is off |
+| `LONG_ABSENCE` | more than **10 working days** — length is its own question |
 | `UNPAID_LEAVE` | the type has no quota — each day comes out of pay |
 | `THIN_REASON` | reason under 25 characters |
 | `NEW_JOINER` | under 3 months' tenure |

@@ -535,3 +535,56 @@ describe('leave with no quota', () => {
     expect(autoApprovable(evaluateRules(short, GOOD_REASON))).toBe(false);
   });
 });
+
+describe('length of absence', () => {
+  // Removing the balance check for unpaid leave removed the only thing that
+  // limited length. Six weeks away would otherwise go through unseen
+  // whenever staffing happened to be clear.
+  const forDays = (days: number) => evaluateRules(facts(), GOOD_REASON, days);
+  const codesFor = (days: number) => forDays(days).map((h) => h.rule.code);
+
+  it('lets an ordinary week through', () => {
+    expect(codesFor(5)).not.toContain('LONG_ABSENCE');
+    expect(autoApprovable(forDays(5))).toBe(true);
+  });
+
+  it('allows exactly the threshold', () => {
+    // A threshold is the longest that passes, not the shortest that fails.
+    expect(codesFor(THRESHOLDS.LONG_ABSENCE_DAYS)).not.toContain('LONG_ABSENCE');
+    expect(autoApprovable(forDays(THRESHOLDS.LONG_ABSENCE_DAYS))).toBe(true);
+  });
+
+  it('holds one day beyond it', () => {
+    expect(codesFor(THRESHOLDS.LONG_ABSENCE_DAYS + 1)).toContain('LONG_ABSENCE');
+    expect(autoApprovable(forDays(THRESHOLDS.LONG_ABSENCE_DAYS + 1))).toBe(false);
+  });
+
+  it('holds the six-week unpaid absence that started this', () => {
+    const unpaid = facts({
+      balance: { tracked: false, allocated: 0, used: 0, remaining: 0, afterApproval: -30 },
+    });
+    const hits = evaluateRules(unpaid, GOOD_REASON, 30);
+    expect(hits.map((h) => h.rule.code)).toContain('LONG_ABSENCE');
+    expect(autoApprovable(hits)).toBe(false);
+    expect(verdictFloor(hits)).toBe('REVIEW');
+  });
+
+  it('says how long it is, not just that it is long', () => {
+    const hit = forDays(30).find((h) => h.rule.code === 'LONG_ABSENCE');
+    expect(hit?.flag.label).toBe('30 working days away');
+    expect(hit?.flag.detail).toContain('agreeing cover');
+  });
+
+  it('asks for review rather than refusing', () => {
+    // Length is a scheduling question, so it goes to a person. A machine
+    // refusing six weeks outright is the outcome deliberately not built.
+    expect(verdictFloor(forDays(30))).toBe('REVIEW');
+  });
+
+  it('defaults to not firing when no day count is given', () => {
+    // buildFlags has callers that do not know the length. Defaulting to
+    // zero must not invent a flag.
+    expect(evaluateRules(facts(), GOOD_REASON).map((h) => h.rule.code))
+      .not.toContain('LONG_ABSENCE');
+  });
+});

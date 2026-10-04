@@ -40,6 +40,17 @@ export const THRESHOLDS = {
   THIN_REASON_CHARS: 25,
   /** Months of service below which someone is still a new joiner. */
   NEW_JOINER_MONTHS: 3,
+  /**
+   * Working days beyond which a request is held for a person, however
+   * clean it looks.
+   *
+   * Ten is two working weeks. Removing the balance check for unpaid leave
+   * removed the only thing that limited LENGTH, and nothing replaced it —
+   * six weeks away would go through unseen if staffing happened to be
+   * clear. Length is its own question: cover for a fortnight is a
+   * scheduling problem whatever the balance says.
+   */
+  LONG_ABSENCE_DAYS: 10,
 } as const;
 
 export type FlagLevel = 'info' | 'warning' | 'danger';
@@ -140,6 +151,8 @@ export type Facts = Omit<DecisionContext, 'flags'>;
 export interface RuleInput {
   ctx: Facts;
   reason: string;
+  /** Working days requested. Not derivable from the context. */
+  days: number;
 }
 
 /**
@@ -186,6 +199,22 @@ export const DECISION_RULES: DecisionRule[] = [
       detail:
         `Approving this would take the balance to ${ctx.balance.afterApproval} days. ` +
         `The system will refuse the approval.`,
+    }),
+  },
+  {
+    code: 'LONG_ABSENCE',
+    level: 'warning',
+    weight: 'concern',
+    meaning:
+      `Longer than ${THRESHOLDS.LONG_ABSENCE_DAYS} working days. However ` +
+      'clean the balance and the cover look today, an absence this long ' +
+      'needs somebody to plan around it rather than a rule to wave it through.',
+    applies: ({ days }) => days > THRESHOLDS.LONG_ABSENCE_DAYS,
+    describe: ({ days }) => ({
+      label: `${plural(days, 'working day')} away`,
+      detail:
+        `Longer than the ${THRESHOLDS.LONG_ABSENCE_DAYS}-day threshold for an ` +
+        'automatic decision. Worth agreeing cover before approving.',
     }),
   },
   {
@@ -439,16 +468,16 @@ export interface RuleHit {
 }
 
 /** Every rule that fired, with the flag it produced. */
-export function evaluateRules(ctx: Facts, reason: string): RuleHit[] {
-  const input: RuleInput = { ctx, reason };
+export function evaluateRules(ctx: Facts, reason: string, days = 0): RuleHit[] {
+  const input: RuleInput = { ctx, reason, days };
   return DECISION_RULES.filter((rule) => rule.applies(input)).map((rule) => ({
     rule,
     flag: { code: rule.code, level: rule.level, ...rule.describe(input) },
   }));
 }
 
-export function buildFlags(ctx: Facts, reason: string): DecisionFlag[] {
-  const flags = evaluateRules(ctx, reason).map((hit) => hit.flag);
+export function buildFlags(ctx: Facts, reason: string, days = 0): DecisionFlag[] {
+  const flags = evaluateRules(ctx, reason, days).map((hit) => hit.flag);
   return flags.length > 0 ? flags : [CLEAR_FLAG];
 }
 
